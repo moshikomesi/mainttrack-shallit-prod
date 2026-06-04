@@ -1,0 +1,30 @@
+# .NET
+bin/
+obj/
+publish/
+.vs/
+*.user
+*.suo
+
+# Node
+node_modules/
+frontend/build/
+frontend/dist/
+
+# Secrets & local env
+.env
+.env.local
+.env.*.local
+config/secrets.env
+
+# OS / IDE
+.DS_Store
+.idea/
+
+# Uploads & logs
+**/wwwroot/uploads/
+logs/
+*.log
+
+# Export tooling
+.export-lock
