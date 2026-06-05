@@ -25,6 +25,3 @@ config/secrets.env
 **/wwwroot/uploads/
 logs/
 *.log
-
-# Export tooling
-.export-lock

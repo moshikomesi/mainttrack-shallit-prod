@@ -207,8 +207,12 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-var productionFrontendOrigin = "https://mt.shallit.co.il";
-var stagingFrontendOrigin = "https://mt-test.shallit.co.il";
+var productionFrontendOrigin = "https://mainttrack.app";
+var stagingFrontendOrigin = "https://test.mainttrack.app";
+
+var productionFrontendOriginGezer = "https://mt.shallit.co.il";
+var stagingFrontendOriginGezer = "https://mt-test.shallit.co.il";
+
 
 var localDevOrigins = new[]
 {
@@ -218,8 +222,8 @@ var localDevOrigins = new[]
     "http://localhost:5062",
 };
 
-var productionOrigins = new[] { productionFrontendOrigin };
-var stagingOrigins = new[] { stagingFrontendOrigin };
+var productionOrigins = new[] { productionFrontendOrigin, productionFrontendOriginGezer };
+var stagingOrigins = new[] { stagingFrontendOrigin , stagingFrontendOriginGezer };
 
 string[] originValidationOrigins;
 string corsPolicyName;

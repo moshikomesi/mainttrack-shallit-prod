@@ -1,16 +1,7 @@
 #!/usr/bin/env bash
-# Apply ShallIT production configuration to an exported snapshot (run after export-production.sh).
+# Post-export: remove lock file from deliverable repo (production config is applied in export runbook).
 set -euo pipefail
-
 DEST="${1:?Usage: finalize-shallit-prod.sh DEST_DIR}"
-
-die() { printf '[finalize] ERROR: %s\n' "$*" >&2; exit 1; }
-log() { printf '[finalize] %s\n' "$*"; }
-
-[[ -d "${DEST}/backend" && -d "${DEST}/frontend" ]] || die "Invalid export directory: ${DEST}"
-
-log "Removing export lock from deliverable repo"
+[[ -d "${DEST}/backend" ]] || { echo "Invalid DEST: ${DEST}" >&2; exit 1; }
 rm -f "${DEST}/.export-lock"
-
-log "Production configuration applied (see README.md in export root)."
-log "Done: ${DEST}"
+echo "[finalize] Removed .export-lock from ${DEST}"

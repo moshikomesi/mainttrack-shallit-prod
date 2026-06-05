@@ -18,10 +18,8 @@ public sealed class MaintTrackDbContextFactory
 
         // NOTE: This connection string is for design-time tooling only.
         // Runtime configuration still comes from Program.cs and appsettings / environment.
-        var connectionString =
-            Environment.GetEnvironmentVariable("MAINTTRACK_DB_CONNECTION")
-            ?? "Host=localhost;Port=5432;Database=mainttrack_dev;Username=CHANGE_ME;Password=CHANGE_ME";
-        optionsBuilder.UseNpgsql(connectionString);
+        optionsBuilder.UseNpgsql(
+            "Host=localhost;Port=5432;Database=mainttrack_dev;Username=postgres;Password=postgres");
 
         ITenantContext tenantContext = new TenantContext
         {
