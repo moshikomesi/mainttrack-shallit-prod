@@ -48,6 +48,36 @@ export async function createMaintenance(
   });
 }
 
+export async function createMaintenanceWithFile(
+  body: CreateMaintenanceEntryRequest,
+  file: File,
+  signal?: AbortSignal
+): Promise<MaintenanceEntryDto> {
+  const formData = new FormData();
+  formData.append('machineId', body.machineId);
+  formData.append('date', body.date);
+  formData.append('maintenanceTypeId', body.maintenanceTypeId);
+  formData.append('workHours', String(body.workHours));
+  formData.append('isSafeToOperate', String(body.isSafeToOperate));
+  formData.append('file', file);
+
+  if (body.description?.trim()) {
+    formData.append('description', body.description.trim());
+  }
+  if (body.imageUrl?.trim()) {
+    formData.append('imageUrl', body.imageUrl.trim());
+  }
+  if (body.sparePartsUsed?.trim()) {
+    formData.append('sparePartsUsed', body.sparePartsUsed.trim());
+  }
+
+  return apiFetch(endpoints.maintenance, {
+    method: 'POST',
+    body: formData,
+    signal,
+  });
+}
+
 export async function updateMaintenance(
   id: string,
   body: UpdateMaintenanceEntryRequest

@@ -3,6 +3,7 @@ using MaintTrack.Domain.Audit;
 using MaintTrack.Domain.Forklifts;
 using MaintTrack.Domain.Machines;
 using MaintTrack.Domain.Maintenance;
+using MaintTrack.Domain.MaintenanceTasks;
 using MaintTrack.Domain.MorningRound;
 using MaintTrack.Domain.Treatments;
 using MaintTrack.Domain.Tenants;
@@ -61,6 +62,8 @@ public class MaintTrackDbContext : DbContext
 
     public DbSet<MaintenanceTask> MaintenanceTasks => Set<MaintenanceTask>();
 
+    public DbSet<MaintenanceTaskLog> MaintenanceTaskLogs => Set<MaintenanceTaskLog>();
+
     public DbSet<Technician> Technicians => Set<Technician>();
 
     public DbSet<PreventivePlanDate> AnnualPlanDates => Set<PreventivePlanDate>();
@@ -81,6 +84,7 @@ public class MaintTrackDbContext : DbContext
         ConfigureMorningRoundTemplateItem(modelBuilder);
         ConfigureAuditLog(modelBuilder);
         ConfigureMaintenance(modelBuilder);
+        ConfigureMaintenanceTaskLogs(modelBuilder);
         ConfigureTreatment(modelBuilder);
         ConfigureAnnualPlans(modelBuilder);
         ConfigureForklift(modelBuilder);
@@ -507,7 +511,7 @@ public class MaintTrackDbContext : DbContext
 
         // MaintenanceTask
         var task = modelBuilder.Entity<MaintenanceTask>();
-        task.ToTable("maintenance_tasks");
+        task.ToTable("annual_plan_tasks");
         task.HasKey(x => x.Id);
         task.Property(x => x.Id).HasColumnName("id");
         task.Property(x => x.TenantId).HasColumnName("tenant_id").IsRequired();
@@ -586,6 +590,50 @@ public class MaintTrackDbContext : DbContext
             .WithMany()
             .HasForeignKey(x => x.TechnicianId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+
+    private void ConfigureMaintenanceTaskLogs(ModelBuilder modelBuilder)
+    {
+        var entity = modelBuilder.Entity<MaintenanceTaskLog>();
+
+        entity.ToTable("maintenance_tasks");
+
+        entity.HasKey(x => x.Id);
+
+        entity.Property(x => x.Id)
+            .HasColumnName("id");
+
+        entity.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        entity.Property(x => x.TaskDate)
+            .HasColumnName("task_date")
+            .IsRequired();
+
+        entity.Property(x => x.ImageUrl)
+            .HasColumnName("image_url")
+            .IsRequired();
+
+        entity.Property(x => x.Description)
+            .HasColumnName("description");
+
+        entity.Property(x => x.IsConfirmed)
+            .HasColumnName("is_confirmed")
+            .IsRequired();
+
+        entity.Property(x => x.CreatedByUserId)
+            .HasColumnName("created_by_user_id")
+            .IsRequired();
+
+        entity.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        entity.HasIndex(x => new { x.TenantId, x.TaskDate });
+        entity.HasIndex(x => new { x.TenantId, x.CreatedAt });
+
+        entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
     private void ConfigureForklift(ModelBuilder modelBuilder)

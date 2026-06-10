@@ -50,6 +50,11 @@ export const translations: Record<string, Record<Language, string>> = {
   'home.title': { en: 'Maintenance Reports', he: 'דוחות תחזוקה', th: 'รายงานการบำรุงรักษา' },
   'home.morningRound': { en: 'Morning Round Report', he: 'סיבוב בוקר', th: 'รายงานรอบเช้า' },
   'home.maintenanceLog': { en: 'Maintenance Log', he: 'יומן אחזקה', th: 'บันทึกการบำรุงรักษา' },
+  'home.maintenanceTasksLog': {
+    en: 'Maintenance Tasks Log',
+    he: 'יומן משימות',
+    th: 'บันทึกภารกิจการบำรุงรักษา',
+  },
   'home.treatmentsReport': { en: 'Treatments Report', he: 'טיפולים', th: 'รายงานการรักษา' },
   'home.forkliftReport': { en: 'Forklift Report', he: 'מלגזות', th: 'รายงานรถยก' },
   'home.annualPlans': { en: 'Annual Plans', he: 'תוכניות שנתיות', th: 'แผนประจำปี' },
@@ -202,6 +207,26 @@ export const translations: Record<string, Record<Language, string>> = {
   'log.clearance': { en: 'Clearance', he: ' אישור חזרה בטוחה לעבודה', th: 'ใบอนุญาตอย่างเป็นทางการให้กลับมาปฏิบัติงาน' },
   'log.declaration': { en: 'I confirm the accuracy of this report', he: 'ברישום הביצוע, הנני מצהיר כי בדקתי את האזור בסיום העבודה, כולל בדיקת איסוף כלים וחלקים, קשירת חוטים וניקיון לפי צרכי בטיחות המוצר ואני מאשר חזרה לעבודה.', th: 'ในบันทึกการปฏิบัติงาน ฉันขอประกาศว่าฉันได้ตรวจสอบพื้นที่เมื่อสิ้นสุดการทำงาน รวมถึงการตรวจสอบการรวบรวมเครื่องมือและชิ้นส่วน การผูกสายไฟ และการทำความสะอาดตามความต้องการด้านความปลอดภัยของผลิตภัณฑ์ และฉันอนุมัติให้กลับมาทำงานได้' },
   'log.addRow': { en: 'Add Row', he: 'הוסף שורה', th: 'เพิ่มแถว' },
+  'log.taskDescription': {
+    en: 'Task description',
+    he: 'תיאור המשימה',
+    th: 'คำอธิบายงาน',
+  },
+  'log.taskDescriptionPlaceholder': {
+    en: 'Optional task details',
+    he: 'פרטי משימה אופציונליים',
+    th: 'รายละเอียดงานเพิ่มเติม (ไม่บังคับ)',
+  },
+  'log.tasksConfirmation': {
+    en: 'I confirm this task report is accurate',
+    he: 'אני מאשר/ת את נכונות דיווח המשימה',
+    th: 'ฉันยืนยันว่ารายงานงานนี้ถูกต้อง',
+  },
+  'log.maintenanceTaskPhotoAlt': {
+    en: 'Maintenance task photo',
+    he: 'תמונת משימת אחזקה',
+    th: 'รูปภาพงานบำรุงรักษา',
+  },
 'log.selectMaintenanceType': {en: 'Select',he: 'בחר',th: 'เลือก'},
   // Forklift Report Screen
   'forklift.title': { en: 'Forklift Report', he: 'מלגזה', th: 'รายงานรถยก' },

@@ -73,7 +73,7 @@
 | Duplicate checks | Low | TreatmentEndpoint checks `Cost < 0`; TreatmentService also checks. ForkliftReportService validates RepairCost, inspection dates. | Prefer single place (e.g. validator or service). |
 | Enum validation | Low | CreateTreatmentRequest uses EquipmentType, TreatmentType (enums). Invalid values can cause model-binding issues. | Validate enum values explicitly if needed. |
 | ForkliftReportsQuery | Low | ForkliftNumber, Search, Type, ExpiryDays from query. EF parameterizes; no SQL injection. | Optional: constrain ExpiryDays range and Type allowed values. |
-| File upload | OK | UploadEndpoints: size 5MB, content-type whitelist. LocalFileStorageService: content-type and path sanitization. | Good. |
+| File upload | OK | MaintenanceTasksController: size 5MB, content-type whitelist. LocalFileStorageService: content-type and path sanitization. | Good. |
 
 ### 5. Secrets / Config
 
@@ -149,8 +149,8 @@
 
 | Finding | Severity | Location | Recommendation |
 |---------|----------|----------|-----------------|
-| Route consistency | **Medium** | Most APIs under `/api/v1/`; Maintenance and Morning Round under `/api/maintenance`, `/api/morning-round` (no version). Upload under `/api/uploads`. | Standardize on `/api/v1/` for versioned APIs and document. |
-| Upload route | Low | UploadEndpoints: `MapGroup("/api/uploads")` then `MapPost("/", ...)`. | Consider `/api/v1/uploads` for consistency. |
+| Route consistency | **Medium** | Most APIs under `/api/v1/`; Maintenance, Maintenance Tasks, and Morning Round under `/api/maintenance`, `/api/maintenance-tasks`, `/api/morning-round` (no version). | Standardize on `/api/v1/` for versioned APIs and document. |
+| Maintenance Tasks route | Low | MaintenanceTasksController uses `/api/maintenance-tasks`. | Consider `/api/v1/maintenance-tasks` for consistency. |
 | Thin endpoints | OK | Endpoints delegate to application/infrastructure services. | Good. |
 | DTOs | OK | Responses use DTOs; domain entities not exposed. | Good. |
 | Status codes | OK | 200/201/204/400/401/404 used. Update/Delete sometimes rely on exception → 500. | Map service exceptions to 403/404 consistently. |
@@ -214,7 +214,7 @@
 | 7 | Medium | MaintenanceEntryEndpoints.cs, MaintenanceEntryService.cs | Update/Delete throw UnauthorizedAccessException; middleware returns 500. Delete treats "not found" same as "forbidden". | Catch UnauthorizedAccessException in endpoints and return 403. In DeleteAsync, if entry is null return 404 (or equivalent) before role check. | No (wrong status code / UX) |
 | 8 | Medium | Request DTOs | No [Required]/[StringLength]/[Range] or FluentValidation. | Add validation at API boundary; return 400 with clear messages. | No (bad requests may hit services) |
 | 9 | Medium | MaintenanceEntryService.cs | DeleteAsync(entry is null \|\| !SuperAdmin) throws same message. | First check entry is null → throw "not found" or return; then check SuperAdmin → 403. | No (UX) |
-| 10 | Medium | API routes | /api/maintenance, /api/morning-round, /api/uploads not under /api/v1. | Move to /api/v1/... for consistency and versioning. | No (consistency) |
+| 10 | Medium | API routes | /api/maintenance, /api/morning-round, /api/maintenance-tasks not under /api/v1. | Move to /api/v1/... for consistency and versioning. | No (consistency) |
 
 ### D. Low-Risk Improvements
 

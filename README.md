@@ -22,7 +22,7 @@ This is a **standalone client project**. All ShallIT-specific development happen
 The SPA uses `VITE_API_URL=https://mt.shallit.co.il/api`. Client paths are relative to that base (e.g. `/v1/auth/login` → `/api/v1/auth/login` on the server).
 
 Versioned routes: `/api/v1/*`  
-Other routes: `/api/morning-round`, `/api/maintenance`, `/api/uploads`
+Other routes: `/api/morning-round`, `/api/maintenance`, `/api/maintenance-tasks`
 
 ## Local development
 

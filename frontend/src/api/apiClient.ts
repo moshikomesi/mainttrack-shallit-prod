@@ -3,7 +3,8 @@ import { clearSession } from '../auth/authSession';
 const getBaseUrl = (): string => {
   const url = import.meta.env.VITE_API_URL;
   if (typeof url !== 'string' || !url) {
-    return '';
+    // Vite dev proxy forwards /api → http://localhost:5062
+    return '/api';
   }
   return url.replace(/\/$/, '');
 };

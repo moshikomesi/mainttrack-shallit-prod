@@ -9,6 +9,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { HomeScreen } from './components/HomeScreen';
 import { MorningRoundScreen } from './components/MorningRoundScreen';
 import { MaintenanceLogScreen } from './components/MaintenanceLogScreen';
+import { MaintenanceTasksLogScreen } from './components/MaintenanceTasksLogScreen';
 import { TreatmentsReportScreen } from './components/TreatmentsReportScreen';
 import { ForkliftReportScreen } from './components/ForkliftReportScreen';
 import { AnnualPlansScreen } from './components/AnnualPlansScreen';
@@ -20,6 +21,7 @@ import { SettingsScreen } from './components/SettingsScreen';
 const screenIdToPath: Record<string, string> = {
   morningRound: '/morning-round',
   maintenanceLog: '/maintenance',
+  maintenanceTasksLog: '/maintenance-tasks',
   treatments: '/treatments',
   forklift: '/forklift',
   annualPlans: '/annual-plans',
@@ -118,6 +120,19 @@ function AppRoutes() {
               <Navigate to="/login" replace />
             ) : (
               <MaintenanceLogScreen
+                onBack={() => navigate('/home')}
+                onSubmit={handleReportSubmitted}
+              />
+            )
+          }
+        />
+        <Route
+          path="/maintenance-tasks"
+          element={
+            !isLoggedIn ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <MaintenanceTasksLogScreen
                 onBack={() => navigate('/home')}
                 onSubmit={handleReportSubmitted}
               />

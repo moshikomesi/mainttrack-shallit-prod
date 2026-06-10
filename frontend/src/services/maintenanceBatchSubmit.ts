@@ -1,10 +1,5 @@
 import type { CreateMaintenanceEntryRequest, MaintenanceLogEntry } from '../types/maintenance';
-import { createMaintenance } from './maintenanceService';
-import {
-  MaintenanceImageValidationError,
-  UploadUserError,
-  uploadFileWithRetry,
-} from './uploadService';
+import { createMaintenance, createMaintenanceWithFile } from './maintenanceService';
 
 export type PerRowSubmitResult =
   | { rowId: string; status: 'success' }
@@ -37,7 +32,7 @@ function buildPayload(
     machineId: row.machine,
     date: row.date,
     maintenanceTypeId: row.maintenanceTypeId,
-    sparePartsUsed: row.spareParts || null,
+    sparePartsUsed: null,
     workHours: Number(row.workHours ?? 0),
     isSafeToOperate: true,
     imageUrl,
@@ -48,14 +43,10 @@ function buildPayload(
   return { ...base };
 }
 
-/**
- * Resolves image URL: reuses `uploadedImageUrl`, uploads `photoFile` when needed, otherwise null.
- * Never returns a preview/blob URL.
- */
-async function resolveImageUrlForRow(
+function resolveImageUrlForRow(
   row: MaintenanceLogEntry,
   signal?: AbortSignal
-): Promise<{ ok: true; url: string | null } | { ok: false; translationKey: string }> {
+): { ok: true; url: string | null } | { ok: false; translationKey: string } {
   if (signal?.aborted) {
     return { ok: false, translationKey: 'messages.uploadCancelled' };
   }
@@ -68,22 +59,7 @@ async function resolveImageUrlForRow(
     return { ok: true, url: null };
   }
 
-  try {
-    const url = await uploadFileWithRetry(row.photoFile, signal, 2);
-    return { ok: true, url };
-  } catch (e) {
-    if (isAbortLike(signal, e)) {
-      return { ok: false, translationKey: 'messages.uploadCancelled' };
-    }
-    if (e instanceof MaintenanceImageValidationError) {
-      return { ok: false, translationKey: e.translationKey };
-    }
-    if (e instanceof UploadUserError) {
-      return { ok: false, translationKey: e.translationKey };
-    }
-    console.error('[resolveImageUrlForRow]', row.id, e);
-    return { ok: false, translationKey: 'messages.uploadFailed' };
-  }
+  return { ok: true, url: null };
 }
 
 /**
@@ -93,7 +69,7 @@ export async function submitOneMaintenanceRow(
   row: MaintenanceLogEntry,
   signal?: AbortSignal
 ): Promise<PerRowSubmitResult> {
-  const resolved = await resolveImageUrlForRow(row, signal);
+  const resolved = resolveImageUrlForRow(row, signal);
   if (!resolved.ok) {
     if (resolved.translationKey === 'messages.uploadCancelled') {
       return { rowId: row.id, status: 'aborted', translationKey: resolved.translationKey };
@@ -108,7 +84,11 @@ export async function submitOneMaintenanceRow(
   const payload = buildPayload(row, resolved.url);
 
   try {
-    await createMaintenance(payload);
+    if (row.photoFile) {
+      await createMaintenanceWithFile(payload, row.photoFile, signal);
+    } else {
+      await createMaintenance(payload);
+    }
   } catch (e) {
     if (isAbortLike(signal, e)) {
       return { rowId: row.id, status: 'aborted', translationKey: 'messages.uploadCancelled' };

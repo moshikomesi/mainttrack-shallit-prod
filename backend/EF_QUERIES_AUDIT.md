@@ -197,7 +197,7 @@ Verify existing migrations for Treatment, MorningRoundReport, MaintenanceEntry, 
 | /api/maintenance/{id} | PUT | MaintenanceEntryEndpoints → IMaintenanceEntryService.UpdateAsync | MaintenanceEntryService.UpdateAsync: MaintenanceEntries FirstOrDefaultAsync (tracked), Add AuditLog, SaveChangesAsync |
 | /api/maintenance/{id} | DELETE | MaintenanceEntryEndpoints → IMaintenanceEntryService.DeleteAsync | MaintenanceEntryService.DeleteAsync: MaintenanceEntries FirstOrDefaultAsync (tracked), Remove entry, Add AuditLog, SaveChangesAsync |
 | (Login / Auth) | — | Auth flow → ILoginService.AuthenticateAsync | LoginService.AuthenticateAsync: Users (IgnoreQueryFilters, Where IsActive + ILike Username/Email), FirstOrDefaultAsync |
-| /api/upload (MapUploadEndpoints) | POST | UploadEndpoints → IFileStorageService | No database queries; file storage only |
+| /api/maintenance-tasks | POST | MaintenanceTasksController → IFileStorageService → IMaintenanceTasksService | Stores uploaded file, then inserts maintenance task row |
 
 ---
 

@@ -23,11 +23,13 @@ using MaintTrack.Application.MorningRound;
 using MaintTrack.Infrastructure.Storage;
 using MaintTrack.Application.Forklifts;
 using MaintTrack.Application.Maintenance;
+using MaintTrack.Application.MaintenanceTasks;
 using MaintTrack.Application.Reports.ForkliftReports;
 using MaintTrack.Application.Treatments;
 using MaintTrack.Application.AnnualPlans;
 using MaintTrack.Infrastructure.Forklifts;
 using MaintTrack.Infrastructure.Maintenance;
+using MaintTrack.Infrastructure.MaintenanceTasks;
 using MaintTrack.Infrastructure.Reports;
 using MaintTrack.Infrastructure.Treatments;
 using MaintTrack.Infrastructure.AnnualPlans;
@@ -79,6 +81,8 @@ builder.Services.AddScoped<
     MaintTrack.Infrastructure.Maintenance.MaintenanceEntryService>();
 
 builder.Services.AddScoped<IMaintenanceTypeService, MaintTrack.Infrastructure.Maintenance.MaintenanceTypeService>();
+builder.Services.AddScoped<IMaintenanceTasksRepository, MaintenanceTasksRepository>();
+builder.Services.AddScoped<IMaintenanceTasksService, MaintenanceTasksService>();
 
 builder.Services.AddScoped<ITreatmentService, TreatmentService>();
 
@@ -207,12 +211,8 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-var productionFrontendOrigin = "https://mainttrack.app";
-var stagingFrontendOrigin = "https://test.mainttrack.app";
-
-var productionFrontendOriginGezer = "https://mt.shallit.co.il";
-var stagingFrontendOriginGezer = "https://mt-test.shallit.co.il";
-
+var productionFrontendOrigin = "https://mt.shallit.co.il";
+var stagingFrontendOrigin = "https://mt-test.shallit.co.il";
 
 var localDevOrigins = new[]
 {
@@ -222,8 +222,8 @@ var localDevOrigins = new[]
     "http://localhost:5062",
 };
 
-var productionOrigins = new[] { productionFrontendOrigin, productionFrontendOriginGezer };
-var stagingOrigins = new[] { stagingFrontendOrigin , stagingFrontendOriginGezer };
+var productionOrigins = new[] { productionFrontendOrigin };
+var stagingOrigins = new[] { stagingFrontendOrigin };
 
 string[] originValidationOrigins;
 string corsPolicyName;
@@ -315,12 +315,12 @@ app.MapAuth();
 app.MapMachines();
 app.MapMorningRoundEndpoints();
 app.MapMaintenanceEntryEndpoints();
+app.MapMaintenanceTasksController();
 app.MapMaintenanceTypeEndpoints();
 app.MapTreatmentEndpoints();
 app.MapForkliftEndpoints();
 app.MapAnnualPlanEndpoints();
 app.MapReportsEndpoints();
-app.MapUploadEndpoints();
 app.Run();
 
 // Make Program class accessible for integration tests

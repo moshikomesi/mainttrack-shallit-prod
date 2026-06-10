@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using MaintTrack.Application.Abstractions;
+using Microsoft.Extensions.Configuration;
 
 namespace MaintTrack.Infrastructure.Storage;
 
@@ -15,6 +16,16 @@ public sealed class LocalFileStorageService : IFileStorageService
         "image/png",
         "image/webp"
     };
+
+    private readonly string _basePath;
+
+    public LocalFileStorageService(IConfiguration configuration)
+    {
+        var configuredBasePath = configuration["Storage:BasePath"];
+        _basePath = string.IsNullOrWhiteSpace(configuredBasePath)
+            ? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot")
+            : configuredBasePath.Trim();
+    }
 
     public async Task<string> UploadAsync(
         Stream stream,
@@ -39,10 +50,7 @@ public sealed class LocalFileStorageService : IFileStorageService
         }
 
         var safeTenantId = tenantId.Replace("..", string.Empty).Replace("/", string.Empty).Replace("\\", string.Empty);
-
-        var rootPath = "/mnt/app";
-
-        var uploadsRoot = Path.Combine(rootPath, "uploads", safeTenantId);
+        var uploadsRoot = Path.Combine(GetUploadsRoot(), safeTenantId);
 
         if (!Directory.Exists(uploadsRoot))
         {
@@ -50,7 +58,6 @@ public sealed class LocalFileStorageService : IFileStorageService
         }
 
         var extension = GetExtensionFromContentType(contentType);
-
         var generatedName = $"{Guid.NewGuid()}{extension}";
         var fullPath = Path.Combine(uploadsRoot, generatedName);
 
@@ -64,8 +71,7 @@ public sealed class LocalFileStorageService : IFileStorageService
             await stream.CopyToAsync(fileStream, ct);
         }
 
-        var relativeUrl = $"/uploads/{safeTenantId}/{generatedName}";
-        return relativeUrl;
+        return $"/uploads/{safeTenantId}/{generatedName}";
     }
 
     public Task DeleteAsync(string fileUrl, CancellationToken ct)
@@ -75,8 +81,6 @@ public sealed class LocalFileStorageService : IFileStorageService
             return Task.CompletedTask;
         }
 
-        var rootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-
         const string prefix = "/uploads/";
         if (!fileUrl.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -84,9 +88,8 @@ public sealed class LocalFileStorageService : IFileStorageService
         }
 
         var relativePath = fileUrl.TrimStart('/');
-
-        var fullPath = Path.GetFullPath(Path.Combine(rootPath, relativePath));
-        var uploadsRoot = Path.GetFullPath(Path.Combine(rootPath, "uploads"));
+        var fullPath = Path.GetFullPath(Path.Combine(GetContentRoot(), relativePath));
+        var uploadsRoot = EnsureTrailingDirectorySeparator(Path.GetFullPath(GetUploadsRoot()));
 
         if (!fullPath.StartsWith(uploadsRoot, StringComparison.OrdinalIgnoreCase))
         {
@@ -99,6 +102,29 @@ public sealed class LocalFileStorageService : IFileStorageService
         }
 
         return Task.CompletedTask;
+    }
+
+    private string GetContentRoot()
+    {
+        var fullBasePath = Path.GetFullPath(_basePath);
+        return string.Equals(Path.GetFileName(fullBasePath), "uploads", StringComparison.OrdinalIgnoreCase)
+            ? Directory.GetParent(fullBasePath)?.FullName ?? fullBasePath
+            : fullBasePath;
+    }
+
+    private string GetUploadsRoot()
+    {
+        var fullBasePath = Path.GetFullPath(_basePath);
+        return string.Equals(Path.GetFileName(fullBasePath), "uploads", StringComparison.OrdinalIgnoreCase)
+            ? fullBasePath
+            : Path.Combine(fullBasePath, "uploads");
+    }
+
+    private static string EnsureTrailingDirectorySeparator(string path)
+    {
+        return Path.EndsInDirectorySeparator(path)
+            ? path
+            : path + Path.DirectorySeparatorChar;
     }
 
     private static string GetExtensionFromContentType(string contentType)

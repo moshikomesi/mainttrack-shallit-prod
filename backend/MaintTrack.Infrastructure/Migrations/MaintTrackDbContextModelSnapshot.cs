@@ -122,7 +122,7 @@ namespace MaintTrack.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "Type", "OrderIndex");
 
-                    b.ToTable("maintenance_tasks", (string)null);
+                    b.ToTable("annual_plan_tasks", (string)null);
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.AnnualPlans.PreventivePlanDate", b =>
@@ -605,6 +605,51 @@ namespace MaintTrack.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("maintenance_types", (string)null);
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.MaintenanceTasks.MaintenanceTaskLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("image_url");
+
+                    b.Property<bool>("IsConfirmed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_confirmed");
+
+                    b.Property<DateTime>("TaskDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("task_date");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "CreatedAt");
+
+                    b.HasIndex("TenantId", "TaskDate");
+
+                    b.ToTable("maintenance_tasks", (string)null);
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.MorningRound.MorningRoundReport", b =>

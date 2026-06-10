@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { ClipboardList, FileText, Truck, List, Calendar, Droplets } from 'lucide-react';
+import { ClipboardCheck, ClipboardList, FileText, Truck, List, Calendar, Droplets } from 'lucide-react';
 import { getForkliftReportsOverview } from '../services/forkliftReportsService';
 import { AppHeader } from './AppHeader';
 
@@ -28,6 +28,13 @@ export function HomeScreen({ onNavigate, userRoleId, onLogout }: HomeScreenProps
       label: t('home.maintenanceLog'),
       icon: FileText,
       color: 'bg-teal-700',
+      visible: canSeeMaintenance(userRoleId),
+    },
+    {
+      id: 'maintenanceTasksLog',
+      label: t('home.maintenanceTasksLog'),
+      icon: ClipboardCheck,
+      color: 'bg-amber-700',
       visible: canSeeMaintenance(userRoleId),
     },
     {
@@ -60,7 +67,7 @@ export function HomeScreen({ onNavigate, userRoleId, onLogout }: HomeScreenProps
       visible: canSeeReports(userRoleId),
     },
 
-  ].filter((item) => item.visible);
+  ].filter((item) => item.visible && item.id !== 'forklift');
 
   return (
     <div className="min-h-screen bg-neutral-50">
