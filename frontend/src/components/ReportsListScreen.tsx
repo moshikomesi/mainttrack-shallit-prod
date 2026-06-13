@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { Calendar, Loader2, RefreshCw } from 'lucide-react';
-import { ForkliftReportsScreen } from './ForkliftReportsScreen';
 import { AnnualPlanReportScreen } from './AnnualPlanReportScreen';
+import { MaintenanceTasksReportScreen } from './reports/MaintenanceTasksReportScreen';
 import { getMorningRounds } from '../services/morningRoundsService';
 import { getMaintenance } from '../services/maintenanceService';
 import { getTreatments } from '../services/treatmentService';
@@ -16,7 +16,7 @@ import type { ReportListItem, ReportsListScreenProps } from '../types/reports';
 export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
   const { t } = useLanguage();
   const [selectedType, setSelectedType] =
-    useState<'morning' | 'maintenance' | 'treatments' | 'forklift-reports' | 'annual-plans' | null>(null);
+    useState<'morning' | 'maintenance' | 'maintenance-tasks' | 'treatments' | 'annual-plans' | null>(null);
   const [filterDate, setFilterDate] = useState('');
   const [morningReports, setMorningReports] = useState<ReportListItem[]>([]);
   const [isLoadingMorning, setIsLoadingMorning] = useState(false);
@@ -150,10 +150,6 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
     ? reports.filter(r => r.date === filterDate)
     : reports;
 
-  if (selectedType === 'forklift-reports') {
-    return <ForkliftReportsScreen onBack={() => setSelectedType(null)} />;
-  }
-
   return (
     <div className="min-h-screen bg-neutral-50">
       <AppHeader title={t('reports.title')} showBack={true} showHome={true} />
@@ -185,6 +181,14 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
                 </div>
             </button>
             <button
+              onClick={() => setSelectedType('maintenance-tasks')}
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+            >
+              <div className="text-base font-semibold text-neutral-900 mb-1">
+                {t('reports.tasks.menuTitle')}
+              </div>
+            </button>
+            <button
               onClick={() => setSelectedType('annual-plans')}
               className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
             >
@@ -202,15 +206,9 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
               <div className="text-sm text-neutral-500">
               </div>
             </button>
-            <button
-              onClick={() => setSelectedType('forklift-reports')}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
-            >
-              <div className="text-base font-semibold text-neutral-900 mb-1">
-                {t('forkliftReports.title')}
-              </div>
-            </button>
           </div>
+        ) : selectedType === 'maintenance-tasks' ? (
+          <MaintenanceTasksReportScreen />
         ) : selectedType === 'annual-plans' ? (
           <div className="space-y-4">
             <div className="bg-white border border-neutral-200 rounded-lg p-3 space-y-3">

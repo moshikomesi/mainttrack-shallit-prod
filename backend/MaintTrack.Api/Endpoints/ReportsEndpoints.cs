@@ -1,4 +1,5 @@
 using MaintTrack.Application.Reports.ForkliftReports;
+using MaintTrack.Application.Reports.MaintenanceTasks;
 using MaintTrack.Application.Abstractions;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,6 +24,22 @@ public static class ReportsEndpoints
             .RequireRateLimiting("api")
             .RequireAuthorization()
             .WithName("GetForkliftReportsOverview")
+            .WithOpenApi();
+
+        app.MapGet("/api/reports/maintenance-tasks", async (
+                [FromServices] ICurrentUserContext currentUserContext,
+                [FromServices] IMaintenanceTasksReportService service,
+                CancellationToken ct) =>
+            {
+                if (currentUserContext.RoleId < 1)
+                    return Results.Forbid();
+
+                var result = await service.GetAsync(ct);
+                return Results.Ok(result);
+            })
+            .RequireRateLimiting("api")
+            .RequireAuthorization()
+            .WithName("GetMaintenanceTasksReport")
             .WithOpenApi();
 
         return app;

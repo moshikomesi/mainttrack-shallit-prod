@@ -11,6 +11,7 @@ export const endpoints = {
   forklifts: '/v1/forklifts',
   forkliftReports: '/v1/forklift',
   forkliftReportsOverview: '/v1/reports/forklifts',
+  maintenanceTasksReport: '/reports/maintenance-tasks',
   annualPlans: '/v1/annual-plans',
   annualPlansTasks: '/v1/annual-plans/tasks',
   annualPlansTechnicians: '/v1/annual-plans/technicians',

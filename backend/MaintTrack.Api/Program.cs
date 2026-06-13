@@ -25,6 +25,7 @@ using MaintTrack.Application.Forklifts;
 using MaintTrack.Application.Maintenance;
 using MaintTrack.Application.MaintenanceTasks;
 using MaintTrack.Application.Reports.ForkliftReports;
+using MaintTrack.Application.Reports.MaintenanceTasks;
 using MaintTrack.Application.Treatments;
 using MaintTrack.Application.AnnualPlans;
 using MaintTrack.Infrastructure.Forklifts;
@@ -91,6 +92,7 @@ builder.Services.AddScoped<IAnnualPlanService, AnnualPlanService>();
 builder.Services.AddScoped<IForkliftReportService, ForkliftReportService>();
 builder.Services.AddScoped<IForkliftService, ForkliftService>();
 builder.Services.AddScoped<IForkliftReportsQueryService, ForkliftReportsQueryService>();
+builder.Services.AddScoped<IMaintenanceTasksReportService, MaintenanceTasksReportService>();
 if (string.Equals(builder.Configuration["Storage:Provider"], "S3", StringComparison.OrdinalIgnoreCase))
 {
 var s3Section = builder.Configuration.GetSection("S3");
