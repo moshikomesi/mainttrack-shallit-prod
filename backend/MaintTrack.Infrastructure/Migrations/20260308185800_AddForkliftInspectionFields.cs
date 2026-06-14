@@ -10,23 +10,24 @@ namespace MaintTrack.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AlterColumn<string>(
-                name: "treatment_type",
-                table: "treatments",
-                type: "text",
-                nullable: false,
-                oldClrType: typeof(string),
-                oldType: "character varying(50)",
-                oldMaxLength: 50);
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'treatments' AND column_name = 'treatment_type'
+    ) THEN
+        ALTER TABLE treatments ALTER COLUMN treatment_type TYPE text;
+    END IF;
 
-            migrationBuilder.AlterColumn<string>(
-                name: "equipment_type",
-                table: "treatments",
-                type: "text",
-                nullable: false,
-                oldClrType: typeof(string),
-                oldType: "character varying(50)",
-                oldMaxLength: 50);
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'treatments' AND column_name = 'equipment_type'
+    ) THEN
+        ALTER TABLE treatments ALTER COLUMN equipment_type TYPE text;
+    END IF;
+END $$;
+");
         }
 
         /// <inheritdoc />

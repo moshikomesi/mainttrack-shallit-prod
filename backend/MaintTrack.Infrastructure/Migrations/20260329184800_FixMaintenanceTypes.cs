@@ -9,51 +9,101 @@ namespace MaintTrack.Infrastructure.Migrations
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            //  Create table
-            migrationBuilder.CreateTable(
-                name: "maintenance_types",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    code = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
-                    is_active = table.Column<bool>(type: "boolean", nullable: false),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_maintenance_types", x => x.id);
-                });
+            migrationBuilder.Sql(@"
+CREATE TABLE IF NOT EXISTS maintenance_types (
+    id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    code character varying(100) NOT NULL,
+    is_active boolean NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NULL
+);
+");
 
-            //  Unique index (tenant + code)
-            migrationBuilder.CreateIndex(
-                name: "IX_maintenance_types_tenant_id_code",
-                table: "maintenance_types",
-                columns: new[] { "tenant_id", "code" },
-                unique: true);
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'PK_maintenance_types'
+    ) THEN
+        ALTER TABLE maintenance_types
+        ADD CONSTRAINT ""PK_maintenance_types"" PRIMARY KEY (id);
+    END IF;
+END $$;
+");
 
-            //  Add column to MaintenanceEntries 
-            migrationBuilder.AddColumn<Guid>(
-                name: "MaintenanceTypeId",
-                table: "MaintenanceEntries",
-                type: "uuid",
-                nullable: true);
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'maintenance_types' AND column_name = 'tenant_id'
+    )
+    AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'maintenance_types' AND column_name = 'code'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_class WHERE relname = 'IX_maintenance_types_tenant_id_code' AND relkind = 'i'
+    ) THEN
+        CREATE UNIQUE INDEX ""IX_maintenance_types_tenant_id_code"" ON maintenance_types (tenant_id, code);
+    END IF;
+END $$;
+");
 
-            //  Index
-            migrationBuilder.CreateIndex(
-                name: "IX_MaintenanceEntries_MaintenanceTypeId",
-                table: "MaintenanceEntries",
-                column: "MaintenanceTypeId");
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'MaintenanceEntries' AND c.relkind = 'r' AND n.nspname = 'public'
+    ) THEN
+        ALTER TABLE ""MaintenanceEntries""
+            ADD COLUMN IF NOT EXISTS ""MaintenanceTypeId"" uuid NULL;
+    END IF;
+END $$;
+");
 
-            //  FK
-            migrationBuilder.AddForeignKey(
-                name: "FK_MaintenanceEntries_maintenance_types_MaintenanceTypeId",
-                table: "MaintenanceEntries",
-                column: "MaintenanceTypeId",
-                principalTable: "maintenance_types",
-                principalColumn: "id",
-                onDelete: ReferentialAction.SetNull);
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'MaintenanceEntries' AND column_name = 'MaintenanceTypeId'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_class WHERE relname = 'IX_MaintenanceEntries_MaintenanceTypeId' AND relkind = 'i'
+    ) THEN
+        CREATE INDEX ""IX_MaintenanceEntries_MaintenanceTypeId""
+            ON ""MaintenanceEntries"" (""MaintenanceTypeId"");
+    END IF;
+END $$;
+");
+
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'MaintenanceEntries' AND column_name = 'MaintenanceTypeId'
+    )
+    AND EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'maintenance_types' AND c.relkind = 'r' AND n.nspname = 'public'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'FK_MaintenanceEntries_maintenance_types_MaintenanceTypeId'
+    ) THEN
+        ALTER TABLE ""MaintenanceEntries""
+        ADD CONSTRAINT ""FK_MaintenanceEntries_maintenance_types_MaintenanceTypeId""
+        FOREIGN KEY (""MaintenanceTypeId"") REFERENCES maintenance_types (id) ON DELETE SET NULL;
+    END IF;
+END $$;
+");
 
             // Seed ־tenants
             migrationBuilder.Sql(

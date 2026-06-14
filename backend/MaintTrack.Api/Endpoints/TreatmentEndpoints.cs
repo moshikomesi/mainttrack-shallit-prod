@@ -11,7 +11,6 @@ public static class TreatmentEndpoints
     public static IEndpointRouteBuilder MapTreatmentEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/v1/treatments", async (
-                EquipmentType? equipmentType,
                 DateOnly? fromDate,
                 DateOnly? toDate,
                 int? pageNumber,
@@ -25,7 +24,7 @@ public static class TreatmentEndpoints
 
                 var p = pageNumber is > 0 ? pageNumber.Value : 1;
                 var s = pageSize is > 0 ? pageSize.Value : 20;
-                var list = await treatmentService.GetAsync(equipmentType, fromDate, toDate, p, s, cancellationToken);
+                var list = await treatmentService.GetAsync(fromDate, toDate, p, s, cancellationToken);
                 return Results.Ok(list);
             })
             .RequireRateLimiting("api")
@@ -58,9 +57,6 @@ public static class TreatmentEndpoints
             {
                 if (currentUserContext.RoleId < 3)
                     return Results.Forbid();
-
-                if (request.Cost < 0)
-                    return Results.BadRequest(new { error = "Cost must be greater than or equal to zero." });
 
                 var id = await treatmentService.CreateAsync(request, cancellationToken);
 

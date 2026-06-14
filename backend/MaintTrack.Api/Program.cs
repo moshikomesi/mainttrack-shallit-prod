@@ -275,6 +275,12 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+//using (var scope = app.Services.CreateScope())
+//{
+//    var db = scope.ServiceProvider.GetRequiredService<MaintTrackDbContext>();
+//    db.Database.Migrate();
+//}
+
 app.UseForwardedHeaders();
 
 // Middleware pipeline

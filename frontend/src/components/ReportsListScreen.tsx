@@ -11,10 +11,12 @@ import { AppHeader } from './AppHeader';
 import type { MorningRoundDto } from '../types/morningRound';
 import type { MaintenanceEntryDto } from '../types/maintenance';
 import type { TreatmentDto } from '../types/treatment';
+import { formatDisplayDate, formatDisplayDateTime } from '../utils/formatDate';
+import { formatTechnician } from '../utils/formatTechnician';
 import type { ReportListItem, ReportsListScreenProps } from '../types/reports';
 
 export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [selectedType, setSelectedType] =
     useState<'morning' | 'maintenance' | 'maintenance-tasks' | 'treatments' | 'annual-plans' | null>(null);
   const [filterDate, setFilterDate] = useState('');
@@ -28,16 +30,6 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
 
   const currentYear = new Date().getFullYear();
   const annualPlanYears = Array.from({ length: 7 }, (_, i) => String(currentYear - 3 + i));
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'short',
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
-    });
-  };
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -111,11 +103,11 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
         pageSize,
         search: debouncedSearch.length >= 2 ? debouncedSearch : undefined,
       });
-      const items: ReportListItem[] = (list as TreatmentDto[]).map((t) => ({
-        id: t.id,
-        date: t.treatmentDate,
-        submittedBy: t.technician,
-        submittedAt: t.treatmentDate,
+      const items: ReportListItem[] = (list as TreatmentDto[]).map((treatment) => ({
+        id: treatment.id,
+        date: treatment.treatmentDate,
+        submittedBy: treatment.technician,
+        submittedAt: treatment.treatmentDate,
         type: 'treatments',
       }));
       return { items };
@@ -318,18 +310,23 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
                 >
                   <div className="flex items-start justify-between mb-2">
                     <div className="text-sm font-semibold text-neutral-900">
-                      {formatDate(report.date)}
+                      {formatDisplayDate(language, report.date)}
                     </div>
                     <div className="px-2 py-0.5 bg-teal-100 text-teal-800 rounded text-xs font-medium">
                       {t('common.submitted')}
                     </div>
                   </div>
                   <div className="text-sm text-neutral-600 mb-1">
-                    {t('reports.submittedBy')}: <span className="font-medium text-neutral-900">{report.submittedBy}</span>
+                    {selectedType === 'treatments' ? t('common.technician') : t('reports.submittedBy')}:{' '}
+                    <span className="font-medium text-neutral-900">
+                      {selectedType === 'treatments'
+                        ? formatTechnician(t, report.submittedBy)
+                        : report.submittedBy}
+                    </span>
                   </div>
                   {selectedType === 'morning' && (
                     <div className="text-xs text-neutral-500">
-                      {t('details.submittedOn')}: {new Date(report.submittedAt).toLocaleString()}
+                      {t('details.submittedOn')}: {formatDisplayDateTime(language, report.submittedAt)}
                     </div>
                   )}
                 </button>

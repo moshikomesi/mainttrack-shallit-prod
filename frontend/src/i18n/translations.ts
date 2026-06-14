@@ -187,12 +187,13 @@ export const translations: Record<string, Record<Language, string>> = {
 
   // Technicians (Annual Plans)
   'tech.eli': { en: 'Eli', he: 'אלי', th: 'เอลี' },
-  'tech.solomon': { en: 'Solomon', he: 'שלמה', th: 'โซโลมอน' },
-  'tech.yehuda': { en: 'Yehuda', he: 'יהודה', th: 'เยฮูดา' },
-  'tech.thaiDom': { en: 'Thai Dom', he: 'תאי דום', th: 'ไทย ดอม' },
-
+  'tech.sharon': { en: 'Sharon', he: 'שרון', th: 'ชาร์อน' },
+  'tech.tzadit': { en: 'Tzadit', he: 'צדית', th: 'ซาดิต' },
+  'tech.tom': { en: 'Tom', he: 'תום', th: 'ต้อม' },
+  'tech.emm': { en: 'Emm', he: 'אם', th: 'อีม' },
+  'tech.pia': { en: 'Pia', he: 'פיה', th: 'พีอีเอ' },
   // Log (Maintenance Log Screen)
-  'log.machine': { en: 'Machine Name & Number', he: 'שם ומספר מכונה', th: 'ชื่อและหมายเลขเครื่อง' },
+  'log.machine': { en: 'Machine', he: 'מכונה', th: 'เครื่องจักร' },
   'log.fault': { en: 'Fault Description', he: 'תאור התקלה ותיאור התיקון ', th: ' คำอธิบายของปัญหา + และคำอธิบายการซ่อม' },
   'log.maintenanceTypeLabel': { en: 'Type of issue / maintenance', he: 'סוג תקלה / טיפול', th: 'ประเภทปัญหา / การบำรุงรักษา' },
   // Maintenance type codes (labels only; codes stored in API)
@@ -210,6 +211,9 @@ export const translations: Record<string, Record<Language, string>> = {
   'maintenanceType.timing_belt': { en: 'Timing belt', he: 'רצועת טיימניג', th: 'สายพานไทม์มิ่ง' },
   'maintenanceType.rail_cart': { en: 'Rail cart', he: 'עגלת מסילה', th: 'รถราง' },
   'maintenanceType.other': { en: 'Other', he: 'אחר', th: 'อื่นๆ' },
+  'maintenanceType.aircompressor': { en: 'aircompressor', he: 'מדחס אוויר', th: 'อัปเปอร์เครื่องอัดอากาศ' },
+  'maintenanceType.cooling': { en: 'cooling', he: 'מערכת  קירור', th: 'ระบบอุปกรณ์ร้อน' },
+  'maintenanceType.coolingcompressor': { en: 'cooling compressor', he: 'מדחסים קירור ', th: 'อัปเปอร์เครื่องอัดอากาศร้อน' },
   'log.spareParts': { en: 'Spare Parts', he: 'רשימת החלפים ', th: 'อะไหล่' },
   'log.workHours': { en: 'Work Hours', he: 'שעות עבודה', th: 'ชั่วโมงทำงาน' },
   'log.maintenanceRowDeclarationLabel': {
@@ -279,6 +283,7 @@ export const translations: Record<string, Record<Language, string>> = {
   'treatments.title': { en: 'Treatments Report', he: 'דוח טיפולים', th: 'รายงานการรักษา' },
   'treatments.equipment': { en: 'Equipment', he: 'ציוד', th: 'อุปกรณ์' },
   'treatments.treatmentType': { en: 'Treatment Type', he: 'סוג טיפול', th: 'ประเภทการรักษา' },
+  'treatment.type': { en: 'Treatment Type', he: 'סוג טיפול', th: 'ประเภทการรักษา' },
   'treatments.description': { en: 'Description', he: 'תיאור', th: 'รายละเอียด' },
   'treatments.airCompressor': { en: 'Air Compressor', he: 'מדחס אוויר', th: 'คอมเพรสเซอร์' },
   'treatments.coolingSystem': { en: 'Cooling System', he: 'מערכת קירור', th: 'ระบบทำความเย็น' },

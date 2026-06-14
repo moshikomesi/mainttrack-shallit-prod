@@ -3,7 +3,6 @@ import { endpoints } from '../api/endpoints';
 import type { CreateTreatmentRequest, TreatmentDto } from '../types/treatment';
 
 export interface GetTreatmentsParams {
-  equipmentType?: string;
   fromDate?: string;
   toDate?: string;
   search?: string;
@@ -14,7 +13,6 @@ export interface GetTreatmentsParams {
 function buildSearchParams(params?: GetTreatmentsParams): string {
   if (!params) return '';
   const search = new URLSearchParams();
-  if (params.equipmentType != null) search.set('equipmentType', params.equipmentType);
   if (params.fromDate != null) search.set('fromDate', params.fromDate);
   if (params.toDate != null) search.set('toDate', params.toDate);
   if (params.search != null) search.set('search', params.search);

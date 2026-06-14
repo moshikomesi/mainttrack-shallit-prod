@@ -122,7 +122,7 @@ namespace MaintTrack.Infrastructure.Migrations
 
                     b.HasIndex("TenantId", "Type", "OrderIndex");
 
-                    b.ToTable("annual_plan_tasks", (string)null);
+                    b.ToTable("maintenance_tasks", (string)null);
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.AnnualPlans.PreventivePlanDate", b =>
@@ -545,7 +545,7 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.Property<bool>("IsSafeToOperate")
                         .HasColumnType("boolean");
 
-                    b.Property<Guid>("MachineId")
+                    b.Property<Guid?>("MachineId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("MaintenanceTypeId")
@@ -605,51 +605,6 @@ namespace MaintTrack.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("maintenance_types", (string)null);
-                });
-
-            modelBuilder.Entity("MaintTrack.Domain.MaintenanceTasks.MaintenanceTaskLog", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<Guid>("CreatedByUserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("created_by_user_id");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text")
-                        .HasColumnName("description");
-
-                    b.Property<string>("ImageUrl")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("image_url");
-
-                    b.Property<bool>("IsConfirmed")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_confirmed");
-
-                    b.Property<DateTime>("TaskDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("task_date");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "CreatedAt");
-
-                    b.HasIndex("TenantId", "TaskDate");
-
-                    b.ToTable("maintenance_tasks", (string)null);
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.MorningRound.MorningRoundReport", b =>
@@ -776,6 +731,10 @@ namespace MaintTrack.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasMaxLength(2000)
@@ -786,6 +745,14 @@ namespace MaintTrack.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("equipment_type");
+
+                    b.Property<Guid?>("MachineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("machine_id");
+
+                    b.Property<Guid?>("MaintenanceTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("maintenance_type_id");
 
                     b.Property<DateOnly?>("NextDueDate")
                         .HasColumnType("date")
@@ -816,7 +783,17 @@ namespace MaintTrack.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("MachineId");
+
+                    b.HasIndex("MaintenanceTypeId");
+
                     b.HasIndex("TenantId", "EquipmentType");
+
+                    b.HasIndex("TenantId", "MachineId");
+
+                    b.HasIndex("TenantId", "MaintenanceTypeId");
 
                     b.HasIndex("TenantId", "TreatmentDate");
 
@@ -1013,6 +990,30 @@ namespace MaintTrack.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("MaintenanceTypeId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("MaintenanceType");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Treatments.Treatment", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Users.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("MaintTrack.Domain.Machines.Machine", "Machine")
+                        .WithMany()
+                        .HasForeignKey("MachineId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("MaintTrack.Domain.Maintenance.MaintenanceType", "MaintenanceType")
+                        .WithMany()
+                        .HasForeignKey("MaintenanceTypeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("Machine");
 
                     b.Navigation("MaintenanceType");
                 });

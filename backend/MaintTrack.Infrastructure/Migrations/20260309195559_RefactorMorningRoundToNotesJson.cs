@@ -11,15 +11,21 @@ namespace MaintTrack.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "morning_round_items");
+            migrationBuilder.Sql(@"DROP TABLE IF EXISTS morning_round_items CASCADE;");
 
-            migrationBuilder.AddColumn<string>(
-                name: "notes_json",
-                table: "morning_round_reports",
-                type: "text",
-                nullable: false,
-                defaultValue: "");
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'morning_round_reports' AND c.relkind = 'r' AND n.nspname = 'public'
+    ) THEN
+        ALTER TABLE morning_round_reports
+            ADD COLUMN IF NOT EXISTS notes_json text NOT NULL DEFAULT '';
+    END IF;
+END $$;
+");
         }
 
         /// <inheritdoc />

@@ -1,18 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Navigate } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { AppHeader } from './AppHeader';
 import { validateRequired } from '../utils/validateForm';
 import { createTreatment } from '../services/treatmentService';
+import { getMachines, type MachineDto } from '../services/machinesService';
+import { getMaintenanceTypes } from '../services/maintenanceTypeService';
 import { canSeeTreatments } from '../auth/roles';
+import { Button } from './ui/button';
 import type {
   CreateTreatmentRequest,
   TreatmentsReportScreenProps,
-  UiEquipmentKey,
-  UiTreatmentTypeKey,
 } from '../types/treatment';
-import { equipmentMap, treatmentTypeMap } from '../types/treatment';
+
+type MaintenanceTypeOption = { id: string; code: string };
 
 export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsReportScreenProps) {
   const { t } = useLanguage();
@@ -23,22 +25,98 @@ export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsRepor
     return <Navigate to="/home" replace />;
   }
   
-  const [equipment, setEquipment] = useState<UiEquipmentKey>('airCompressor');
+  const [machines, setMachines] = useState<MachineDto[]>([]);
+  const [isLoadingMachines, setIsLoadingMachines] = useState(false);
+  const [loadMachinesError, setLoadMachinesError] = useState<string | null>(null);
+  const [maintenanceTypes, setMaintenanceTypes] = useState<MaintenanceTypeOption[]>([]);
+  const [isLoadingMaintenanceTypes, setIsLoadingMaintenanceTypes] = useState(false);
+  const [loadMaintenanceTypesError, setLoadMaintenanceTypesError] = useState<string | null>(null);
+  const sortedMaintenanceTypes = useMemo(
+    () =>
+      [...maintenanceTypes].sort((a, b) =>
+        t(`maintenanceType.${a.code}`).localeCompare(t(`maintenanceType.${b.code}`))
+      ),
+    [maintenanceTypes, t]
+  );
+
+  const [machineId, setMachineId] = useState('');
   const [date, setDate] = useState(today);
-  const [treatmentType, setTreatmentType] = useState<UiTreatmentTypeKey | ''>('');
+  const [maintenanceTypeId, setMaintenanceTypeId] = useState('');
   const [description, setDescription] = useState('');
   const [technician, setTechnician] = useState('');
-  const [cost, setCost] = useState('');
   const [nextScheduled, setNextScheduled] = useState('');
   const [notes, setNotes] = useState('');
 
   const [invalidFieldId, setInvalidFieldId] = useState<string | null>(null);
   const [invalidErrorKey, setInvalidErrorKey] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadMachines = async () => {
+      try {
+        setIsLoadingMachines(true);
+        setLoadMachinesError(null);
+        const list = await getMachines();
+        if (!cancelled) {
+          setMachines(Array.isArray(list) ? list : []);
+        }
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) {
+          setLoadMachinesError(t('common.failedToLoad'));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingMachines(false);
+        }
+      }
+    };
+
+    loadMachines();
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadTypes = async () => {
+      try {
+        setIsLoadingMaintenanceTypes(true);
+        setLoadMaintenanceTypesError(null);
+        const list = await getMaintenanceTypes();
+        if (!cancelled) {
+          setMaintenanceTypes(
+            Array.isArray(list) ? list.map((x) => ({ id: x.id, code: x.code })) : []
+          );
+        }
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) {
+          setLoadMaintenanceTypesError(t('common.failedToLoad'));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingMaintenanceTypes(false);
+        }
+      }
+    };
+
+    loadTypes();
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
+
   const handleSubmit = async () => {
     const result = validateRequired([
       { fieldId: 'field-treatments-date', value: date, errorKey: 'validation.requiredDate' },
-      { fieldId: 'field-treatments-description', value: description, errorKey: 'validation.requiredDescription' },
+      { fieldId: 'field-treatments-machine', value: machineId, errorKey: 'validation.requiredMachine' },
+      {
+        fieldId: 'field-treatments-maintenance-type',
+        value: maintenanceTypeId,
+        errorKey: 'validation.maintenanceTypeRequired',
+      },
       { fieldId: 'field-treatments-technician', value: technician, errorKey: 'validation.requiredTechnician' },
     ]);
     if (!result.valid && result.firstInvalidField && result.errorKey) {
@@ -56,12 +134,11 @@ export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsRepor
 
     try {
       const payload: CreateTreatmentRequest = {
-        equipmentType: equipmentMap[equipment],
+        machineId,
         treatmentDate: date,
-        treatmentType: treatmentTypeMap[treatmentType as UiTreatmentTypeKey] ?? 0,
+        maintenanceTypeId,
         description,
         technician,
-        cost: cost ? Number(cost) : 0,
         nextDueDate: nextScheduled || null,
       };
 
@@ -82,30 +159,30 @@ export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsRepor
         {/* Equipment Selection */}
         <div className="bg-white border border-neutral-200 rounded-lg p-4">
           <label className="block text-sm font-medium text-neutral-700 mb-3">
-            {t('treatments.equipment')}
+            {t('machine.select')}
+            <span className="text-red-500 ms-1">*</span>
           </label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setEquipment('airCompressor')}
-              className={`px-4 py-3 rounded-lg border-2 font-medium transition-colors ${
-                equipment === 'airCompressor'
-                  ? 'border-neutral-800 bg-neutral-800 text-white'
-                  : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50'
-              }`}
-            >
-              {t('treatments.airCompressor')}
-            </button>
-            <button
-              onClick={() => setEquipment('coolingSystem')}
-              className={`px-4 py-3 rounded-lg border-2 font-medium transition-colors ${
-                equipment === 'coolingSystem'
-                  ? 'border-neutral-800 bg-neutral-800 text-white'
-                  : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50'
-              }`}
-            >
-              {t('treatments.coolingSystem')}
-            </button>
-          </div>
+          <select
+            id="field-treatments-machine"
+            value={machineId}
+            disabled={isLoadingMachines}
+            onChange={(e) => { setMachineId(e.target.value); if (invalidFieldId === 'field-treatments-machine') { setInvalidFieldId(null); setInvalidErrorKey(null); } }}
+            className={`w-full px-3 py-2.5 bg-white border rounded-lg text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-800 ${invalidFieldId === 'field-treatments-machine' ? 'border-red-500' : 'border-neutral-300'}`}
+          >
+            <option value="">{isLoadingMachines ? t('common.loading') : t('machine.select')}</option>
+            {!isLoadingMachines &&
+              machines.map((machine) => (
+                <option key={machine.id} value={machine.id}>
+                  {t(machine.name)}
+                </option>
+              ))}
+          </select>
+          {invalidFieldId === 'field-treatments-machine' && invalidErrorKey && (
+            <p className="text-red-500 text-sm mt-1">{t(invalidErrorKey)}</p>
+          )}
+          {loadMachinesError && (
+            <p className="text-red-500 text-xs mt-1">{loadMachinesError}</p>
+          )}
         </div>
 
         {/* Treatment Details */}
@@ -114,7 +191,7 @@ export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsRepor
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-2">
               {t('common.date')}
-              <span className="text-red-500 ml-1">*</span>
+              <span className="text-red-500 ms-1">*</span>
             </label>
             <input
               id="field-treatments-date"
@@ -128,46 +205,57 @@ export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsRepor
             )}
           </div>
 
-          {/* Treatment Type */}
+          {/* Maintenance Type */}
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-2">
-              {t('treatments.treatmentType')}
+              {t('treatment.type')}
+              <span className="text-red-500 ms-1">*</span>
             </label>
             <select
-              value={treatmentType}
-              onChange={(e) => setTreatmentType(e.target.value as UiTreatmentTypeKey | '')}
-              className="w-full px-3 py-2.5 bg-white border border-neutral-300 rounded-lg text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-800"
+              id="field-treatments-maintenance-type"
+              value={maintenanceTypeId}
+              disabled={isLoadingMaintenanceTypes}
+              onChange={(e) => { setMaintenanceTypeId(e.target.value); if (invalidFieldId === 'field-treatments-maintenance-type') { setInvalidFieldId(null); setInvalidErrorKey(null); } }}
+              className={`w-full px-3 py-2.5 bg-white border rounded-lg text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-800 ${invalidFieldId === 'field-treatments-maintenance-type' ? 'border-red-500' : 'border-neutral-300'}`}
             >
-              <option value="">{t('treatments.treatmentType')}</option>
-              <option value="preventive">Preventive</option>
-              <option value="repair">Repair</option>
+              <option value="">
+                {isLoadingMaintenanceTypes ? t('common.loading') : t('log.selectMaintenanceType')}
+              </option>
+              {!isLoadingMaintenanceTypes &&
+                sortedMaintenanceTypes.map((type) => (
+                  <option key={type.id} value={type.id}>
+                    {t(`maintenanceType.${type.code}`)}
+                  </option>
+                ))}
             </select>
+            {invalidFieldId === 'field-treatments-maintenance-type' && invalidErrorKey && (
+              <p className="text-red-500 text-sm mt-1">{t(invalidErrorKey)}</p>
+            )}
+            {loadMaintenanceTypesError && (
+              <p className="text-red-500 text-xs mt-1">{loadMaintenanceTypesError}</p>
+            )}
           </div>
 
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-2">
               {t('treatments.description')}
-              <span className="text-red-500 ml-1">*</span>
             </label>
             <textarea
               id="field-treatments-description"
               value={description}
-              onChange={(e) => { setDescription(e.target.value); if (invalidFieldId === 'field-treatments-description') { setInvalidFieldId(null); setInvalidErrorKey(null); } }}
+              onChange={(e) => setDescription(e.target.value)}
               placeholder={t('treatments.description')}
               rows={3}
-              className={`w-full px-3 py-2.5 bg-white border rounded-lg text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-800 resize-none ${invalidFieldId === 'field-treatments-description' ? 'border-red-500' : 'border-neutral-300'}`}
+              className="w-full px-3 py-2.5 bg-white border border-neutral-300 rounded-lg text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-800 resize-none"
             />
-            {invalidFieldId === 'field-treatments-description' && invalidErrorKey && (
-              <p className="text-red-500 text-sm mt-1">{t(invalidErrorKey)}</p>
-            )}
           </div>
 
           {/* Technician */}
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-2">
               {t('common.technician')}
-              <span className="text-red-500 ml-1">*</span>
+              <span className="text-red-500 ms-1">*</span>
             </label>
             <select
               id="field-treatments-technician"
@@ -177,27 +265,15 @@ export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsRepor
             >
               <option value="">{t('common.technician')}</option>
               <option value="eli">{t('tech.eli')}</option>
-              <option value="thaiDom">{t('tech.thaiDom')}</option>
-              <option value="solomon">{t('tech.solomon')}</option>
-              <option value="yehuda">{t('tech.yehuda')}</option>
+              <option value="sharon">{t('tech.sharon')}</option>
+              <option value="tzadit">{t('tech.tzadit')}</option>
+              <option value="tom">{t('tech.tom')}</option>
+              <option value="emm">{t('tech.emm')}</option>
+              <option value="pia">{t('tech.pia')}</option>
             </select>
             {invalidFieldId === 'field-treatments-technician' && invalidErrorKey && (
               <p className="text-red-500 text-sm mt-1">{t(invalidErrorKey)}</p>
             )}
-          </div>
-
-          {/* Cost */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-2">
-              {t('common.cost')}
-            </label>
-            <input
-              type="number"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
-              placeholder="0.00"
-              className="w-full px-3 py-2.5 bg-white border border-neutral-300 rounded-lg text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-800"
-            />
           </div>
 
           {/* Next Scheduled Date */}
@@ -230,14 +306,12 @@ export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsRepor
       </div>
 
       {/* Submit Button - Sticky */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-neutral-200">
-        <div className="max-w-md mx-auto">
-          <button
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-neutral-200">        <div className="max-w-md mx-auto">
+          <Button
             onClick={handleSubmit}
-            className="w-full py-4 bg-neutral-800 text-white font-semibold rounded-lg hover:bg-neutral-900 active:bg-neutral-950 transition-colors"
-          >
+            className="w-full py-4 bg-neutral-800 text-white font-semibold rounded-lg hover:bg-neutral-900 active:bg-neutral-950 transition-colors"          >
             {t('common.submit')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -8,40 +8,66 @@ public partial class AddRolesAndUserRoleId : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.CreateTable(
-            name: "roles",
-            columns: table => new
-            {
-                id = table.Column<int>(type: "integer", nullable: false),
-                name = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false)
-            },
-            constraints: table =>
-            {
-                table.PrimaryKey("PK_roles", x => x.id);
-            });
+        migrationBuilder.Sql(@"
+CREATE TABLE IF NOT EXISTS roles (
+    id integer NOT NULL,
+    name character varying(50) NOT NULL
+);
+");
 
-        migrationBuilder.CreateIndex(
-            name: "IX_roles_name",
-            table: "roles",
-            column: "name",
-            unique: true);
+        migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'PK_roles'
+    ) THEN
+        ALTER TABLE roles ADD CONSTRAINT ""PK_roles"" PRIMARY KEY (id);
+    END IF;
+END $$;
+");
 
-        migrationBuilder.InsertData(
-            table: "roles",
-            columns: new[] { "id", "name" },
-            values: new object[,]
-            {
-                { 1, "Worker" },
-                { 2, "Manager" },
-                { 3, "SuperAdmin" }
-            });
+        migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'roles' AND c.relkind = 'r' AND n.nspname = 'public'
+    )
+    AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'roles' AND column_name = 'name'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_class WHERE relname = 'IX_roles_name' AND relkind = 'i'
+    ) THEN
+        CREATE UNIQUE INDEX ""IX_roles_name"" ON roles (name);
+    END IF;
+END $$;
+");
 
-        migrationBuilder.AddColumn<int>(
-            name: "role_id",
-            table: "users",
-            type: "integer",
-            nullable: false,
-            defaultValue: 1);
+        migrationBuilder.Sql(@"
+INSERT INTO roles (id, name)
+VALUES
+    (1, 'Worker'),
+    (2, 'Manager'),
+    (3, 'SuperAdmin')
+ON CONFLICT (id) DO NOTHING;
+");
+
+        migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'users' AND c.relkind = 'r' AND n.nspname = 'public'
+    ) THEN
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS role_id integer NOT NULL DEFAULT 1;
+    END IF;
+END $$;
+");
 
         migrationBuilder.Sql(@"
             UPDATE users
@@ -49,25 +75,63 @@ public partial class AddRolesAndUserRoleId : Migration
                 WHEN lower(role) = 'manager' THEN 2
                 WHEN lower(role) IN ('superadmin', 'super_admin', 'super-admin') THEN 3
                 ELSE 1
-            END;
+            END
+            WHERE EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'role'
+            );
         ");
 
-        migrationBuilder.CreateIndex(
-            name: "IX_users_role_id",
-            table: "users",
-            column: "role_id");
+        migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'role_id'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_class WHERE relname = 'IX_users_role_id' AND relkind = 'i'
+    ) THEN
+        CREATE INDEX ""IX_users_role_id"" ON users (role_id);
+    END IF;
+END $$;
+");
 
-        migrationBuilder.AddForeignKey(
-            name: "FK_users_roles_role_id",
-            table: "users",
-            column: "role_id",
-            principalTable: "roles",
-            principalColumn: "id",
-            onDelete: ReferentialAction.Restrict);
+        migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'role_id'
+    )
+    AND EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'roles' AND c.relkind = 'r' AND n.nspname = 'public'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'FK_users_roles_role_id'
+    ) THEN
+        ALTER TABLE users
+        ADD CONSTRAINT ""FK_users_roles_role_id""
+        FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE RESTRICT;
+    END IF;
+END $$;
+");
 
-        migrationBuilder.DropColumn(
-            name: "role",
-            table: "users");
+        migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'role'
+    ) THEN
+        ALTER TABLE users DROP COLUMN role;
+    END IF;
+END $$;
+");
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)

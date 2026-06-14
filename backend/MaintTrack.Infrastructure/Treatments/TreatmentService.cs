@@ -33,8 +33,17 @@ public sealed class TreatmentService : ITreatmentService
         if (_tenantContext.TenantId is null)
             throw new InvalidOperationException("Tenant not resolved.");
 
-        if (request.Cost < 0)
-            throw new InvalidOperationException("Cost must be greater than or equal to zero.");
+        var machineExists = await _dbContext.Machines
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == request.MachineId && x.IsActive, ct);
+        if (!machineExists)
+            throw new InvalidOperationException("Machine not found.");
+
+        var maintenanceTypeExists = await _dbContext.MaintenanceTypes
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == request.MaintenanceTypeId && x.IsActive, ct);
+        if (!maintenanceTypeExists)
+            throw new InvalidOperationException("Maintenance type not found.");
 
         var tenantId = _tenantContext.TenantId.Value;
         var userId = _currentUserContext.UserId;
@@ -45,13 +54,16 @@ public sealed class TreatmentService : ITreatmentService
         {
             Id = id,
             TenantId = tenantId,
-            EquipmentType = request.EquipmentType,
+            MachineId = request.MachineId,
+            EquipmentType = EquipmentType.Compressor,
             TreatmentDate = request.TreatmentDate,
-            TreatmentType = request.TreatmentType,
+            MaintenanceTypeId = request.MaintenanceTypeId,
+            TreatmentType = TreatmentType.Corrective,
             Description = request.Description,
             Technician = request.Technician,
-            Cost = request.Cost,
+            Cost = 0,
             NextDueDate = request.NextDueDate,
+            CreatedByUserId = userId,
             CreatedAt = now
         };
 
@@ -73,7 +85,6 @@ public sealed class TreatmentService : ITreatmentService
     }
 
     public async Task<IEnumerable<TreatmentDto>> GetAsync(
-        EquipmentType? equipmentType,
         DateOnly? fromDate,
         DateOnly? toDate,
         int pageNumber,
@@ -85,8 +96,6 @@ public sealed class TreatmentService : ITreatmentService
 
         var query = _dbContext.Treatments.AsNoTracking();
 
-        if (equipmentType.HasValue)
-            query = query.Where(t => t.EquipmentType == equipmentType.Value);
         if (fromDate.HasValue)
             query = query.Where(t => t.TreatmentDate >= fromDate.Value);
         if (toDate.HasValue)
@@ -98,13 +107,15 @@ public sealed class TreatmentService : ITreatmentService
             .Take(s)
             .Select(t => new TreatmentDto(
                 t.Id,
-                t.EquipmentType,
+                t.MachineId,
+                t.Machine == null ? null : t.Machine.Name,
                 t.TreatmentDate,
-                t.TreatmentType,
+                t.MaintenanceTypeId,
+                t.MaintenanceType == null ? null : t.MaintenanceType.Code,
                 t.Description,
                 t.Technician,
-                t.Cost,
-                t.NextDueDate))
+                t.NextDueDate,
+                t.CreatedByUserId))
             .ToListAsync(ct);
 
         return list;
@@ -117,13 +128,15 @@ public sealed class TreatmentService : ITreatmentService
             .Where(t => t.Id == id)
             .Select(t => new TreatmentDto(
                 t.Id,
-                t.EquipmentType,
+                t.MachineId,
+                t.Machine == null ? null : t.Machine.Name,
                 t.TreatmentDate,
-                t.TreatmentType,
+                t.MaintenanceTypeId,
+                t.MaintenanceType == null ? null : t.MaintenanceType.Code,
                 t.Description,
                 t.Technician,
-                t.Cost,
-                t.NextDueDate))
+                t.NextDueDate,
+                t.CreatedByUserId))
             .FirstOrDefaultAsync(ct);
 
         return dto;

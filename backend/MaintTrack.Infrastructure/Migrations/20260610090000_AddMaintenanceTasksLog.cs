@@ -1,4 +1,3 @@
-using System;
 using MaintTrack.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -15,63 +14,318 @@ namespace MaintTrack.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "FK_annual_plan_items_maintenance_tasks_task_id",
-                table: "annual_plan_items");
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'FK_annual_plan_items_maintenance_tasks_task_id'
+    ) THEN
+        ALTER TABLE annual_plan_items
+        DROP CONSTRAINT ""FK_annual_plan_items_maintenance_tasks_task_id"";
+    END IF;
+END $$;
+");
 
-            migrationBuilder.DropPrimaryKey(
-                name: "PK_maintenance_tasks",
-                table: "maintenance_tasks");
+            migrationBuilder.Sql(@"
+DO $$
+DECLARE
+    pk_table text;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'PK_maintenance_tasks'
+    ) THEN
+        SELECT c.relname
+        INTO pk_table
+        FROM pg_constraint con
+        JOIN pg_class c ON c.oid = con.conrelid
+        WHERE con.conname = 'PK_maintenance_tasks'
+        LIMIT 1;
 
-            migrationBuilder.RenameTable(
-                name: "maintenance_tasks",
-                newName: "annual_plan_tasks");
+        IF pk_table IS NOT NULL THEN
+            EXECUTE format(
+                'ALTER TABLE %I DROP CONSTRAINT %I',
+                pk_table,
+                'PK_maintenance_tasks'
+            );
+        END IF;
+    END IF;
+END $$;
+");
 
-            migrationBuilder.RenameIndex(
-                name: "IX_maintenance_tasks_tenant_id_type_order_index",
-                table: "annual_plan_tasks",
-                newName: "IX_annual_plan_tasks_tenant_id_type_order_index");
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'maintenance_tasks'
+          AND c.relkind = 'r'
+          AND n.nspname = 'public'
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'annual_plan_tasks'
+          AND c.relkind = 'r'
+          AND n.nspname = 'public'
+    ) THEN
+        ALTER TABLE maintenance_tasks RENAME TO annual_plan_tasks;
+    END IF;
+END $$;
+");
 
-            migrationBuilder.AddPrimaryKey(
-                name: "PK_annual_plan_tasks",
-                table: "annual_plan_tasks",
-                column: "id");
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class
+        WHERE relname = 'IX_maintenance_tasks_tenant_id_type_order_index'
+          AND relkind = 'i'
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_class
+        WHERE relname = 'IX_annual_plan_tasks_tenant_id_type_order_index'
+          AND relkind = 'i'
+    ) THEN
+        ALTER INDEX ""IX_maintenance_tasks_tenant_id_type_order_index""
+        RENAME TO ""IX_annual_plan_tasks_tenant_id_type_order_index"";
+    END IF;
+END $$;
+");
 
-            migrationBuilder.AddForeignKey(
-                name: "FK_annual_plan_items_annual_plan_tasks_task_id",
-                table: "annual_plan_items",
-                column: "task_id",
-                principalTable: "annual_plan_tasks",
-                principalColumn: "id",
-                onDelete: ReferentialAction.Restrict);
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'annual_plan_tasks'
+          AND c.relkind = 'r'
+          AND n.nspname = 'public'
+    ) THEN
+        ALTER TABLE annual_plan_tasks ADD COLUMN IF NOT EXISTS tenant_id uuid;
+        ALTER TABLE annual_plan_tasks ADD COLUMN IF NOT EXISTS type character varying(50);
+        ALTER TABLE annual_plan_tasks ADD COLUMN IF NOT EXISTS order_index integer;
+        ALTER TABLE annual_plan_tasks ADD COLUMN IF NOT EXISTS translation_key character varying(200);
+        ALTER TABLE annual_plan_tasks ADD COLUMN IF NOT EXISTS created_at timestamp with time zone;
+        ALTER TABLE annual_plan_tasks ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone;
 
-            migrationBuilder.CreateTable(
-                name: "maintenance_tasks",
-                columns: table => new
-                {
-                    id = table.Column<Guid>(type: "uuid", nullable: false),
-                    task_date = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    image_url = table.Column<string>(type: "text", nullable: false),
-                    description = table.Column<string>(type: "text", nullable: true),
-                    is_confirmed = table.Column<bool>(type: "boolean", nullable: false),
-                    created_by_user_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_maintenance_tasks", x => x.id);
-                });
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_class
+            WHERE relname = 'IX_annual_plan_tasks_tenant_id_type_order_index'
+              AND relkind = 'i'
+        )
+        AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'annual_plan_tasks'
+              AND column_name = 'tenant_id'
+        )
+        AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'annual_plan_tasks'
+              AND column_name = 'type'
+        )
+        AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'annual_plan_tasks'
+              AND column_name = 'order_index'
+        ) THEN
+            CREATE INDEX ""IX_annual_plan_tasks_tenant_id_type_order_index""
+                ON annual_plan_tasks (tenant_id, type, order_index);
+        END IF;
+    END IF;
+END $$;
+");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_maintenance_tasks_tenant_id_created_at",
-                table: "maintenance_tasks",
-                columns: new[] { "tenant_id", "created_at" });
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'annual_plan_tasks'
+          AND c.relkind = 'r'
+          AND n.nspname = 'public'
+    )
+    AND EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'PK_maintenance_tasks'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'PK_annual_plan_tasks'
+    ) THEN
+        ALTER TABLE annual_plan_tasks
+        RENAME CONSTRAINT ""PK_maintenance_tasks"" TO ""PK_annual_plan_tasks"";
+    END IF;
+END $$;
+");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_maintenance_tasks_tenant_id_task_date",
-                table: "maintenance_tasks",
-                columns: new[] { "tenant_id", "task_date" });
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'annual_plan_tasks'
+          AND c.relkind = 'r'
+          AND n.nspname = 'public'
+    )
+    AND EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'annual_plan_tasks'
+          AND column_name = 'id'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'PK_annual_plan_tasks'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'PK_maintenance_tasks'
+    ) THEN
+        ALTER TABLE annual_plan_tasks
+        ADD CONSTRAINT ""PK_annual_plan_tasks"" PRIMARY KEY (id);
+    END IF;
+END $$;
+");
+
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'annual_plan_tasks'
+          AND c.relkind = 'r'
+          AND n.nspname = 'public'
+    )
+    AND EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'annual_plan_items'
+          AND column_name = 'task_id'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'FK_annual_plan_items_annual_plan_tasks_task_id'
+    ) THEN
+        ALTER TABLE annual_plan_items
+        ADD CONSTRAINT ""FK_annual_plan_items_annual_plan_tasks_task_id""
+        FOREIGN KEY (task_id) REFERENCES annual_plan_tasks (id) ON DELETE RESTRICT;
+    END IF;
+END $$;
+");
+
+            migrationBuilder.Sql(@"
+CREATE TABLE IF NOT EXISTS maintenance_tasks (
+    id uuid NOT NULL,
+    task_date timestamp with time zone NOT NULL,
+    image_url text NOT NULL,
+    description text NULL,
+    is_confirmed boolean NOT NULL,
+    created_by_user_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    created_at timestamp with time zone NOT NULL
+);
+");
+
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'maintenance_tasks'
+          AND c.relkind = 'r'
+          AND n.nspname = 'public'
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'PK_maintenance_tasks'
+    ) THEN
+        ALTER TABLE maintenance_tasks
+        ADD CONSTRAINT ""PK_maintenance_tasks"" PRIMARY KEY (id);
+    END IF;
+END $$;
+");
+
+            migrationBuilder.Sql(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'maintenance_tasks'
+          AND c.relkind = 'r'
+          AND n.nspname = 'public'
+    ) THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_class
+            WHERE relname = 'IX_maintenance_tasks_tenant_id_created_at'
+              AND relkind = 'i'
+        )
+        AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'maintenance_tasks'
+              AND column_name = 'tenant_id'
+        )
+        AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'maintenance_tasks'
+              AND column_name = 'created_at'
+        ) THEN
+            CREATE INDEX ""IX_maintenance_tasks_tenant_id_created_at""
+                ON maintenance_tasks (tenant_id, created_at);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_class
+            WHERE relname = 'IX_maintenance_tasks_tenant_id_task_date'
+              AND relkind = 'i'
+        )
+        AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'maintenance_tasks'
+              AND column_name = 'tenant_id'
+        )
+        AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'maintenance_tasks'
+              AND column_name = 'task_date'
+        ) THEN
+            CREATE INDEX ""IX_maintenance_tasks_tenant_id_task_date""
+                ON maintenance_tasks (tenant_id, task_date);
+        END IF;
+    END IF;
+END $$;
+");
         }
 
         /// <inheritdoc />

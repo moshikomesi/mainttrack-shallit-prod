@@ -430,6 +430,14 @@ public class MaintTrackDbContext : DbContext
             .HasColumnName("tenant_id")
             .IsRequired();
 
+        entity.Property(x => x.MachineId)
+            .HasColumnName("machine_id");
+
+        entity.HasOne(x => x.Machine)
+            .WithMany()
+            .HasForeignKey(x => x.MachineId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         entity.Property(x => x.EquipmentType)
             .HasColumnName("equipment_type")
             .HasConversion<string>()
@@ -438,6 +446,14 @@ public class MaintTrackDbContext : DbContext
         entity.Property(x => x.TreatmentDate)
             .HasColumnName("treatment_date")
             .IsRequired();
+
+        entity.Property(x => x.MaintenanceTypeId)
+            .HasColumnName("maintenance_type_id");
+
+        entity.HasOne(x => x.MaintenanceType)
+            .WithMany()
+            .HasForeignKey(x => x.MaintenanceTypeId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         entity.Property(x => x.TreatmentType)
             .HasColumnName("treatment_type")
@@ -461,6 +477,14 @@ public class MaintTrackDbContext : DbContext
         entity.Property(x => x.NextDueDate)
             .HasColumnName("next_due_date");
 
+        entity.Property(x => x.CreatedByUserId)
+            .HasColumnName("created_by_user_id");
+
+        entity.HasOne(x => x.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(x => x.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         entity.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();
@@ -470,6 +494,8 @@ public class MaintTrackDbContext : DbContext
 
         entity.HasIndex(x => new { x.TenantId, x.EquipmentType });
         entity.HasIndex(x => new { x.TenantId, x.TreatmentDate });
+        entity.HasIndex(x => new { x.TenantId, x.MachineId });
+        entity.HasIndex(x => new { x.TenantId, x.MaintenanceTypeId });
 
         entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }

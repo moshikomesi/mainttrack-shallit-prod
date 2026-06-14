@@ -1,24 +1,23 @@
-export type TreatmentType = number;
-
 export interface CreateTreatmentRequest {
-  equipmentType: number;
+  machineId: string;
   treatmentDate: string; // ISO date (yyyy-MM-dd)
-  treatmentType: TreatmentType;
+  maintenanceTypeId: string;
   description: string;
   technician: string;
-  cost: number;
   nextDueDate?: string | null;
 }
 
 export interface TreatmentDto {
   id: string;
-  equipmentType: number;
+  machineId?: string | null;
+  machineName?: string | null;
   treatmentDate: string;
-  treatmentType: number;
+  maintenanceTypeId?: string | null;
+  maintenanceTypeName?: string | null;
   description: string;
   technician: string;
-  cost: number;
   nextDueDate?: string | null;
+  createdByUserId?: string | null;
 }
 
 export type TreatmentsReportScreenProps = {
@@ -26,18 +25,3 @@ export type TreatmentsReportScreenProps = {
   onSubmit: () => void;
   userRoleId: number;
 };
-
-export type UiEquipmentKey = 'airCompressor' | 'coolingSystem';
-
-export const equipmentMap: Record<UiEquipmentKey, number> = {
-  airCompressor: 0,
-  coolingSystem: 1,
-};
-
-export type UiTreatmentTypeKey = 'preventive' | 'repair';
-
-export const treatmentTypeMap: Record<UiTreatmentTypeKey, number> = {
-  preventive: 0,
-  repair: 1,
-};
-

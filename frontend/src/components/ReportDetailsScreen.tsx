@@ -5,6 +5,9 @@ import { getMorningRoundById, getMorningRoundTemplate } from '../services/mornin
 import { getMaintenanceById } from '../services/maintenanceService';
 import { getTreatmentById } from '../services/treatmentsService';
 import { getMachines } from '../services/machinesService';
+import { getMaintenanceTypes, type MaintenanceTypeDto } from '../services/maintenanceTypeService';
+import { formatDisplayDate, formatDisplayDateTime } from '../utils/formatDate';
+import { formatTechnician } from '../utils/formatTechnician';
 import { AppHeader } from './AppHeader';
 import type { MorningRoundDto, MorningRoundTemplateItemDto } from '../types/morningRound';
 import type { MaintenanceEntryDto } from '../types/maintenance';
@@ -25,7 +28,7 @@ interface ChecklistRow {
 }
 
 export function ReportDetailsScreen({ reportId, reportType }: ReportDetailsScreenProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const [morningReport, setMorningReport] = useState<MorningRoundDto | null>(null);
   const [morningChecklist, setMorningChecklist] = useState<ChecklistRow[]>([]);
@@ -38,6 +41,8 @@ export function ReportDetailsScreen({ reportId, reportType }: ReportDetailsScree
   const [isLoadingTreatment, setIsLoadingTreatment] = useState(false);
   const [loadErrorTreatment, setLoadErrorTreatment] = useState<string | null>(null);
   const [machines, setMachines] = useState<MachineDto[]>([]);
+  const [maintenanceTypes, setMaintenanceTypes] = useState<MaintenanceTypeDto[]>([]);
+
   useEffect(() => {
     if (reportType !== 'morning') return;
 
@@ -142,29 +147,27 @@ export function ReportDetailsScreen({ reportId, reportType }: ReportDetailsScree
   }, [reportId, reportType]);
 
   useEffect(() => {
-    const loadMachines = async () => {
+    const loadLookupData = async () => {
       try {
-        const data = await getMachines();
-        setMachines(data);
+        const [machinesData, maintenanceTypesData] = await Promise.all([
+          getMachines(),
+          getMaintenanceTypes(),
+        ]);
+        setMachines(Array.isArray(machinesData) ? machinesData : []);
+        setMaintenanceTypes(Array.isArray(maintenanceTypesData) ? maintenanceTypesData : []);
       } catch (err) {
         console.error(err);
       }
     };
 
-    loadMachines();
+    loadLookupData();
   }, []);
 
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  };
-
   const machine = machines.find((m) => m.id === maintenanceReport?.machineId);
+  const treatmentMachine = machines.find((m) => m.id === treatmentReport?.machineId);
+  const treatmentMaintenanceTypeCode =
+    treatmentReport?.maintenanceTypeName ??
+    maintenanceTypes.find((mt) => mt.id === treatmentReport?.maintenanceTypeId)?.code;
 
   return (
     <div className="min-h-screen bg-neutral-50 pb-6">
@@ -190,7 +193,7 @@ export function ReportDetailsScreen({ reportId, reportType }: ReportDetailsScree
                   <div className="flex justify-between">
                     <span className="text-neutral-600">{t('morning.date')}:</span>
                     <span className="font-medium text-neutral-900">
-                      {formatDate(morningReport.reportDate)}
+                      {formatDisplayDate(language, morningReport.reportDate, 'long')}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -202,7 +205,7 @@ export function ReportDetailsScreen({ reportId, reportType }: ReportDetailsScree
                   <div className="flex justify-between">
                     <span className="text-neutral-600">{t('details.submittedOn')}:</span>
                     <span className="font-medium text-neutral-900">
-                      {new Date(morningReport.performedAt).toLocaleString()}
+                      {formatDisplayDateTime(language, morningReport.performedAt)}
                     </span>
                   </div>
                 </div>
@@ -261,7 +264,7 @@ export function ReportDetailsScreen({ reportId, reportType }: ReportDetailsScree
                   <div className="flex justify-between">
                     <span className="text-neutral-600">{t('log.date')}:</span>
                     <span className="font-medium text-neutral-900">
-                      {formatDate(maintenanceReport.date)}
+                      {formatDisplayDate(language, maintenanceReport.date, 'long')}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -273,7 +276,7 @@ export function ReportDetailsScreen({ reportId, reportType }: ReportDetailsScree
                   <div className="flex justify-between">
                     <span className="text-neutral-600">{t('details.submittedOn')}:</span>
                     <span className="font-medium text-neutral-900">
-                      {new Date(maintenanceReport.createdAt).toLocaleString()}
+                      {formatDisplayDateTime(language, maintenanceReport.createdAt)}
                     </span>
                   </div>
                 </div>
@@ -375,27 +378,33 @@ export function ReportDetailsScreen({ reportId, reportType }: ReportDetailsScree
                   <div className="flex justify-between">
                     <span className="text-neutral-600">{t('common.date')}:</span>
                     <span className="font-medium text-neutral-900">
-                      {formatDate(treatmentReport.treatmentDate)}
+                      {formatDisplayDate(language, treatmentReport.treatmentDate, 'long')}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-neutral-600">{t('treatments.equipment')}:</span>
+                    <span className="text-neutral-600">{t('log.machine')}:</span>
                     <span className="font-medium text-neutral-900">
-                      {t(
-                        `equipment.${
-                          treatmentReport.equipmentType === 0 ? 'Compressor' : 'Cooling'
-                        }`
-                      )}
+                      {treatmentMachine
+                        ? t(treatmentMachine.name)
+                        : treatmentReport.machineName
+                          ? t(treatmentReport.machineName)
+                          : t('common.notProvided')}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-neutral-600">{t('treatments.treatmentType')}:</span>
+                    <span className="text-neutral-600">{t('treatment.type')}:</span>
                     <span className="font-medium text-neutral-900">
-                      {t(
-                        `treatmentTypes.${
-                          treatmentReport.treatmentType === 0 ? 'Preventive' : 'Repair'
-                        }`
-                      )}
+                      {treatmentMaintenanceTypeCode
+                        ? t(`maintenanceType.${treatmentMaintenanceTypeCode}`)
+                        : t('common.notProvided')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">{t('common.technician')}:</span>
+                    <span className="font-medium text-neutral-900">
+                      {treatmentReport.technician
+                        ? formatTechnician(t, treatmentReport.technician)
+                        : t('common.notProvided')}
                     </span>
                   </div>
                 </div>
@@ -410,23 +419,11 @@ export function ReportDetailsScreen({ reportId, reportType }: ReportDetailsScree
                     <span className="text-neutral-600">{t('treatments.description')}: </span>
                     <span className="text-neutral-900">{treatmentReport.description}</span>
                   </div>
-                  <div>
-                    <span className="text-neutral-600">{t('common.technician')}: </span>
-                    <span className="font-medium text-neutral-900">
-                      {treatmentReport.technician}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-neutral-600">{t('common.cost')}: </span>
-                    <span className="font-medium text-neutral-900">
-                      {treatmentReport.cost}
-                    </span>
-                  </div>
                   {treatmentReport.nextDueDate && (
                     <div>
                       <span className="text-neutral-600">{t('treatments.nextScheduled')}: </span>
                       <span className="font-medium text-neutral-900">
-                        {formatDate(treatmentReport.nextDueDate)}
+                        {formatDisplayDate(language, treatmentReport.nextDueDate, 'long')}
                       </span>
                     </div>
                   )}
