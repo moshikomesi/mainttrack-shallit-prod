@@ -1,10 +1,13 @@
 using MaintTrack.Application.Abstractions;
+using MaintTrack.Domain.Arrays;
 using MaintTrack.Domain.Audit;
 using MaintTrack.Domain.Forklifts;
 using MaintTrack.Domain.Machines;
+using MaintTrack.Domain.MachineComponents;
 using MaintTrack.Domain.Maintenance;
 using MaintTrack.Domain.MaintenanceTasks;
 using MaintTrack.Domain.MorningRound;
+using MaintTrack.Domain.MorningRoundV2;
 using MaintTrack.Domain.Treatments;
 using MaintTrack.Domain.Tenants;
 using MaintTrack.Domain.Users;
@@ -34,9 +37,17 @@ public class MaintTrackDbContext : DbContext
 
     public DbSet<Machine> Machines => Set<Machine>();
 
+    public DbSet<MachineComponent> MachineComponents => Set<MachineComponent>();
+
+    public DbSet<MachineComponentMapping> MachineComponentMappings => Set<MachineComponentMapping>();
+
+    public DbSet<WorkGroup> Arrays => Set<WorkGroup>();
+
     public DbSet<MorningRoundReport> MorningRoundReports => Set<MorningRoundReport>();
 
     public DbSet<MorningRoundTemplateItem> MorningRoundTemplateItems => Set<MorningRoundTemplateItem>();
+
+    public DbSet<MorningRoundV2Submission> MorningRoundV2Submissions => Set<MorningRoundV2Submission>();
 
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
@@ -79,9 +90,12 @@ public class MaintTrackDbContext : DbContext
         ConfigureTenants(modelBuilder);
         ConfigureUsers(modelBuilder);
         ConfigureRoles(modelBuilder);
+        ConfigureArrays(modelBuilder);
         ConfigureMachines(modelBuilder);
+        ConfigureMachineComponents(modelBuilder);
         ConfigureMorningRoundReport(modelBuilder);
         ConfigureMorningRoundTemplateItem(modelBuilder);
+        ConfigureMorningRoundV2Submission(modelBuilder);
         ConfigureAuditLog(modelBuilder);
         ConfigureMaintenance(modelBuilder);
         ConfigureMaintenanceTaskLogs(modelBuilder);
@@ -198,6 +212,49 @@ public class MaintTrackDbContext : DbContext
         entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
+    private void ConfigureArrays(ModelBuilder modelBuilder)
+    {
+        var entity = modelBuilder.Entity<WorkGroup>();
+
+        entity.ToTable("arrays");
+
+        entity.HasKey(x => x.Id);
+
+        entity.Property(x => x.Id)
+            .HasColumnName("id");
+
+        entity.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        entity.Property(x => x.NameKey)
+            .HasColumnName("name_key")
+            .IsRequired();
+
+        entity.Property(x => x.SortOrder)
+            .HasColumnName("sort_order")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        entity.Property(x => x.IsActive)
+            .HasColumnName("is_active")
+            .HasDefaultValue(true)
+            .IsRequired();
+
+        entity.Property(x => x.IsMorningRoundEnabled)
+            .HasColumnName("is_morning_round_enabled")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        entity.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        entity.Ignore(x => x.UpdatedAt);
+
+        entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+    }
+
     private void ConfigureMachines(ModelBuilder modelBuilder)
     {
         var entity = modelBuilder.Entity<Machine>();
@@ -237,8 +294,114 @@ public class MaintTrackDbContext : DbContext
         entity.Property(x => x.UpdatedAt)
             .HasColumnName("updated_at");
 
+        entity.Property(x => x.ArrayId)
+            .HasColumnName("array_id");
+
+        entity.Ignore(x => x.Array);
+
         // Multi-tenancy: enforce tenant_id for all Machine queries.
         entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+    }
+
+    private void ConfigureMachineComponents(ModelBuilder modelBuilder)
+    {
+        var component = modelBuilder.Entity<MachineComponent>();
+
+        component.ToTable("machine_components");
+
+        component.HasKey(x => x.Id);
+
+        component.Property(x => x.Id)
+            .HasColumnName("id");
+
+        component.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        component.Property(x => x.Code)
+            .HasColumnName("code")
+            .HasMaxLength(100)
+            .IsRequired();
+
+        component.Property(x => x.NameKey)
+            .HasColumnName("name_key")
+            .HasMaxLength(200)
+            .IsRequired();
+
+        component.Property(x => x.SortOrder)
+            .HasColumnName("sort_order")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        component.Property(x => x.IsActive)
+            .HasColumnName("is_active")
+            .HasDefaultValue(true)
+            .IsRequired();
+
+        component.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        component.Ignore(x => x.UpdatedAt);
+
+        component.HasIndex(x => new { x.TenantId, x.Code })
+            .IsUnique();
+
+        component.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+
+        var mapping = modelBuilder.Entity<MachineComponentMapping>();
+
+        mapping.ToTable("machine_component_mappings");
+
+        mapping.HasKey(x => x.Id);
+
+        mapping.Property(x => x.Id)
+            .HasColumnName("id");
+
+        mapping.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        mapping.Property(x => x.MachineId)
+            .HasColumnName("machine_id")
+            .IsRequired();
+
+        mapping.Property(x => x.ComponentId)
+            .HasColumnName("component_id")
+            .IsRequired();
+
+        mapping.Property(x => x.SortOrder)
+            .HasColumnName("sort_order")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        mapping.Property(x => x.IsActive)
+            .HasColumnName("is_active")
+            .HasDefaultValue(true)
+            .IsRequired();
+
+        mapping.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        mapping.Ignore(x => x.UpdatedAt);
+
+        mapping.HasIndex(x => new { x.MachineId, x.ComponentId })
+            .IsUnique();
+
+        mapping.HasIndex(x => new { x.TenantId, x.MachineId });
+
+        mapping.HasOne(x => x.Machine)
+            .WithMany()
+            .HasForeignKey(x => x.MachineId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        mapping.HasOne(x => x.Component)
+            .WithMany()
+            .HasForeignKey(x => x.ComponentId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        mapping.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
     private void ConfigureMorningRoundReport(ModelBuilder modelBuilder)
@@ -317,6 +480,51 @@ public class MaintTrackDbContext : DbContext
             .IsRequired();
 
         entity.HasIndex(x => new { x.TenantId, x.SortOrder });
+
+        entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+    }
+
+    private void ConfigureMorningRoundV2Submission(ModelBuilder modelBuilder)
+    {
+        var entity = modelBuilder.Entity<MorningRoundV2Submission>();
+
+        entity.ToTable("morning_round_v2_submissions");
+
+        entity.HasKey(x => x.Id);
+
+        entity.Property(x => x.Id)
+            .HasColumnName("id");
+
+        entity.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        entity.Property(x => x.ReportDate)
+            .HasColumnName("report_date")
+            .IsRequired();
+
+        entity.Property(x => x.SubmittedAt)
+            .HasColumnName("submitted_at")
+            .IsRequired();
+
+        entity.Property(x => x.SubmittedByUserId)
+            .HasColumnName("submitted_by_user_id")
+            .IsRequired();
+
+        entity.Property(x => x.ItemsJson)
+            .HasColumnName("items_json")
+            .HasColumnType("jsonb")
+            .IsRequired();
+
+        entity.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        entity.Property(x => x.UpdatedAt)
+            .HasColumnName("updated_at");
+
+        entity.HasIndex(x => new { x.TenantId, x.ReportDate })
+            .IsUnique();
 
         entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }

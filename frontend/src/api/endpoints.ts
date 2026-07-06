@@ -3,8 +3,12 @@ export const endpoints = {
   authLogout: '/v1/auth/logout',
   authMe: '/v1/auth/me',
   machines: '/v1/machines',
+  hierarchy: '/v1/hierarchy',
   morningRounds: '/morning-round',
+  morningRoundV2: '/v2/morning-round',
   maintenance: '/maintenance',
+  maintenanceLogV2MachineComponents: (machineId: string) =>
+    `/v2/maintenance-log/machines/${machineId}/components`,
   maintenanceTasks: '/maintenance-tasks',
   maintenanceTypes: '/v1/maintenance-types',
   treatments: '/v1/treatments',

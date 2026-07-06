@@ -19,6 +19,7 @@ config/secrets.env
 
 # Local deploy scripts (machine-specific, not for repo)
 frontend/deploy-frontend.sh
+backend/deploy-backend.sh
 
 # OS / IDE
 .DS_Store

@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { useLanguage } from '../context/LanguageContext';
-import { Plus, X, Camera, Loader2 } from 'lucide-react';
+import { X, Camera, Loader2 } from 'lucide-react';
 import { AppHeader } from './AppHeader';
+import { ReadOnlyDateBanner } from './ReadOnlyDateBanner';
 import { validateRequired, type FieldCheck } from '../utils/validateForm';
 import {
   applyMaintenanceSubmitOutcomes,
@@ -162,35 +163,6 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount; sort uses t from closure
   }, []);
-
-  const addEntry = () => {
-    if (submittingRef.current) return;
-    const newEntry: MaintenanceLogEntry = {
-      id: Date.now().toString(),
-      date: today,
-      machine: '',
-      maintenanceTypeId: '',
-      maintenanceTypeCode: '',
-      fault: '',
-      spareParts: '',
-      workHours: '',
-    };
-    setEntries([...entries, newEntry]);
-  };
-
-  const removeEntry = (id: string) => {
-    if (submittingRef.current) return;
-    if (entries.length > 1) {
-      setEntries(
-        entries.filter((entry) => {
-          if (entry.id === id && entry.photoPreviewUrl) {
-            URL.revokeObjectURL(entry.photoPreviewUrl);
-          }
-          return entry.id !== id;
-        })
-      );
-    }
-  };
 
   const updateEntry = (id: string, field: keyof MaintenanceLogEntry, value: string) => {
     setEntries(
@@ -404,16 +376,7 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
       <AppHeader title={t('home.maintenanceLog')} showBack={true} showHome={true} />
 
       <div className="p-4 space-y-4">
-        {/* Add Entry Button */}
-        <button
-          type="button"
-          onClick={addEntry}
-          disabled={isSubmitting}
-          className="w-full bg-white border border-neutral-300 rounded-lg p-3 flex items-center justify-center gap-2 text-neutral-700 hover:bg-neutral-50 active:bg-neutral-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Plus className="w-5 h-5" />
-          <span className="font-medium">{t('log.addRow')}</span>
-        </button>
+        <ReadOnlyDateBanner date={today} />
 
         {/* Maintenance Entries */}
         {entries.map((entry, index) => {
@@ -431,44 +394,9 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
               <span className="text-sm font-semibold text-neutral-900">
                 {t('log.entry')} #{index + 1}
               </span>
-              {entries.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeEntry(entry.id)}
-                  disabled={isSubmitting}
-                  className="p-1 hover:bg-neutral-100 rounded transition-colors disabled:opacity-40"
-                >
-                  <X className="w-5 h-5 text-neutral-500" />
-                </button>
-              )}
             </div>
 
             <div className="grid gap-3">
-              {/* Date */}
-              <div>
-                <label className="block text-xs font-medium text-neutral-600 mb-1">
-                  {t('log.date')}
-                  <span className="text-red-500 ml-1">*</span>
-                </label>
-                <input
-                  id={index === 0 ? 'field-entry-date' : undefined}
-                  type="date"
-                  value={entry.date}
-                  disabled={isSubmitting}
-                  onChange={(e) => {
-                    updateEntry(entry.id, 'date', e.target.value);
-                    if (index === 0 && invalidFieldId === 'field-entry-date') {
-                      setInvalidFieldId(null);
-                      setInvalidErrorKey(null);
-                    }
-                  }}
-                  className={`w-full px-3 py-2 bg-white border rounded text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800 ${index === 0 && invalidFieldId === 'field-entry-date' ? 'border-red-500' : 'border-neutral-300'}`}
-                />
-                {index === 0 && invalidFieldId === 'field-entry-date' && invalidErrorKey && (
-                  <p className="text-red-500 text-sm mt-1">{t(invalidErrorKey)}</p>
-                )}
-              </div>
-
               {/* Machine */}
               <div>
                 <label className="block text-xs font-medium text-neutral-600 mb-1">

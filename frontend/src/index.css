@@ -1280,3 +1280,43 @@ html {
   inherits: false;
   initial-value: 0 0 #0000;
 }
+
+/* ui/dialog.tsx relies on Tailwind utilities not present in this prebuilt stylesheet */
+[data-slot="dialog-overlay"] {
+  inset: 0;
+  z-index: 50;
+  background-color: rgb(0 0 0 / 50%);
+}
+
+[data-slot="dialog-content"] {
+  top: 50%;
+  left: 50%;
+  z-index: 50;
+  transform: translate(-50%, -50%);
+  max-width: calc(100% - 2rem);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+[data-slot="dialog-close"] {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+}
+
+@media (width >= 40rem) {
+  [data-slot="dialog-content"] {
+    max-width: 32rem;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

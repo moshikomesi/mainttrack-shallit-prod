@@ -1,0 +1,62 @@
+.mr-v2-status {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mr-v2-status__btn {
+  flex: 1;
+  min-height: 3rem;
+  border-radius: 0.625rem;
+  border: 2px solid #d4d4d4;
+  background-color: #fafafa;
+  color: #737373;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    box-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+.mr-v2-status__btn:hover {
+  background-color: #f5f5f5;
+}
+
+.mr-v2-status__btn:active {
+  background-color: #e5e5e5;
+}
+
+.mr-v2-status__btn--fail-active {
+  background-color: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.15);
+}
+
+.mr-v2-status__btn--fail-active:hover {
+  background-color: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.mr-v2-status__btn--pass-active {
+  background-color: #16a34a;
+  border-color: #16a34a;
+  color: #ffffff;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.15);
+}
+
+.mr-v2-status__btn--pass-active:hover {
+  background-color: #15803d;
+  border-color: #15803d;
+}
+
+.mr-v2-status__btn--readonly {
+  cursor: default;
+  pointer-events: none;
+}
+
+.mr-v2-status__icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+}

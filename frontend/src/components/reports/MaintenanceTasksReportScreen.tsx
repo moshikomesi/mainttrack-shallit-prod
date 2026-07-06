@@ -2,13 +2,25 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Calendar, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { getMaintenanceTasksReport } from '../../services/maintenanceTasksReportService';
+import { ReportLocationHeader } from './ReportLocationHeader';
+import { reportDateLocationLabel, taskLocationLabel } from '../../utils/reportLocationLabels';
 import type { MaintenanceTaskReportDto } from '../../types/maintenanceTaskReport';
 import { safeImageSrc } from '../../utils/safeUrl';
 
-export function MaintenanceTasksReportScreen() {
+type Props = {
+  expandedId?: string | null;
+  onExpandedIdChange?: (id: string | null) => void;
+};
+
+export function MaintenanceTasksReportScreen({
+  expandedId: expandedIdProp,
+  onExpandedIdChange,
+}: Props = {}) {
   const { t, language } = useLanguage();
   const [tasks, setTasks] = useState<MaintenanceTaskReportDto[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [internalExpandedId, setInternalExpandedId] = useState<string | null>(null);
+  const expandedId = expandedIdProp ?? internalExpandedId;
+  const setExpandedId = onExpandedIdChange ?? setInternalExpandedId;
   const [filterDate, setFilterDate] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -73,8 +85,24 @@ export function MaintenanceTasksReportScreen() {
     return tasks.filter((task) => task.taskDate.slice(0, 10) === filterDate);
   }, [filterDate, tasks]);
 
+  const expandedTask = expandedId
+    ? filteredTasks.find((task) => task.id === expandedId) ?? null
+    : null;
+
+  const locationSegments = useMemo(() => {
+    const segments = [t('reports.title'), t('reports.tasks.menuTitle')];
+    if (expandedTask) {
+      segments.push(reportDateLocationLabel(t, language, expandedTask.taskDate.slice(0, 10)));
+      if (expandedTask.description.trim()) {
+        segments.push(taskLocationLabel(t, expandedTask.description));
+      }
+    }
+    return segments;
+  }, [expandedTask, language, t]);
+
   return (
     <div className="space-y-4">
+      <ReportLocationHeader segments={locationSegments} />
       <div className="bg-white border border-neutral-200 rounded-lg p-3">
         <label className="flex items-center gap-2 text-sm font-medium text-neutral-700 mb-2">
           <Calendar className="w-4 h-4" />

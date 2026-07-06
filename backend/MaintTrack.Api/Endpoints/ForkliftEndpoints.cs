@@ -19,8 +19,17 @@ public static class ForkliftEndpoints
                 if (currentUserContext.RoleId < 2)
                     return Results.Forbid();
 
-                var id = await forkliftService.CreateAsync(request, cancellationToken);
-                return Results.Created($"/api/v1/forklifts/{id}", new { id });
+                try
+                {
+                    var id = await forkliftService.CreateAsync(request, cancellationToken);
+                    return Results.Created($"/api/v1/forklifts/{id}", new { id });
+                }
+                catch (InvalidOperationException ex) when (
+                    ex.Message is "License number is required."
+                    or "Forklift license number already exists.")
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
             })
             .RequireRateLimiting("api")
             .RequireAuthorization()

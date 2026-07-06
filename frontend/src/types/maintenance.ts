@@ -1,6 +1,8 @@
 export interface MaintenanceEntryDto {
   id: string;
   machineId: string;
+  /** Resolved from the machine's array assignment at read time; not stored on the entry. */
+  arrayId?: string | null;
   date: string;
   maintenanceTypeId?: string | null;
   maintenanceTypeCode?: string | null;

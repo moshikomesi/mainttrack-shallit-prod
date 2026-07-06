@@ -1,0 +1,116 @@
+BEGIN;
+
+-- array.washing_system → a2000001-0000-0000-0000-000000000001
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'b2000001-0000-0000-0000-000000000002' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'e7c91a02-93f8-48d6-889f-df6a5c6b7dc3' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'b2000001-0000-0000-0000-000000000001' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = '7441ff95-10ff-4df9-858b-e586b75c87d7' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = '58f7a8ad-5b11-409f-8a52-73dc3c731f81' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'b2000001-0000-0000-0000-000000000005' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'b2000001-0000-0000-0000-000000000007' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'be417b68-389e-4842-944f-0f3a14d0f58b' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'dbd1af62-e594-4231-83ad-87edd54863e5' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = '709833c7-d501-466d-b8bf-c14d860294e2' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'b2000001-0000-0000-0000-000000000008' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'b2000001-0000-0000-0000-000000000006' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = '5c9eb652-7f5b-4cf4-aa63-20a33f145e2e' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'b2000001-0000-0000-0000-000000000003' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = '0546f4ac-e5aa-4be0-bd39-74d72ab7ecb3' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'b2000001-0000-0000-0000-000000000009' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = 'b2000001-0000-0000-0000-000000000004' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000001' WHERE id = '7e275298-d1e6-4368-bf11-3faa67e3ff5d' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+-- array.onion_system → a2000001-0000-0000-0000-000000000002
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000002' WHERE id = 'b2000001-0000-0000-0000-000000000105' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000002' WHERE id = 'b2000001-0000-0000-0000-000000000108' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000002' WHERE id = 'b2000001-0000-0000-0000-000000000102' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000002' WHERE id = 'b2000001-0000-0000-0000-000000000101' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000002' WHERE id = 'b2000001-0000-0000-0000-000000000106' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000002' WHERE id = 'b2000001-0000-0000-0000-000000000104' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000002' WHERE id = 'b2000001-0000-0000-0000-000000000107' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000002' WHERE id = 'b2000001-0000-0000-0000-000000000103' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+-- array.water_cooling_system → a2000001-0000-0000-0000-000000000003
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000211' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000201' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000202' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000203' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000204' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000205' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000206' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000207' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000208' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000209' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000003' WHERE id = 'b2000001-0000-0000-0000-000000000210' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+-- array.rooms → a2000001-0000-0000-0000-000000000004
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = 'e1b5fe7a-cb8d-4cc0-8d92-9e1f6d7ee8d2' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = '660fc1fa-3fc9-444f-91e2-781edc41ef6b' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = '29d80cc7-875b-491a-ac0b-9fc5dc53e538' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = 'b2000001-0000-0000-0000-000000000301' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = 'b2000001-0000-0000-0000-000000000302' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = 'b2000001-0000-0000-0000-000000000303' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = 'b2000001-0000-0000-0000-000000000304' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = 'b2000001-0000-0000-0000-000000000307' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = 'b2000001-0000-0000-0000-000000000306' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000004' WHERE id = 'b2000001-0000-0000-0000-000000000305' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+-- array.ginoshar → a2000001-0000-0000-0000-000000000005
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000005' WHERE id = 'b2000001-0000-0000-0000-000000000403' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000005' WHERE id = 'b2000001-0000-0000-0000-000000000401' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000005' WHERE id = 'b2000001-0000-0000-0000-000000000402' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+-- array.packing_house → a2000001-0000-0000-0000-000000000006
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '5c9ff30e-190f-455d-ad47-6c30257e2603' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b2000001-0000-0000-0000-000000000505' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b2000001-0000-0000-0000-000000000502' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b2000001-0000-0000-0000-000000000508' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b2000001-0000-0000-0000-000000000503' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b2000001-0000-0000-0000-000000000506' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b2000001-0000-0000-0000-000000000501' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b2000001-0000-0000-0000-000000000507' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b2000001-0000-0000-0000-000000000504' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b2000001-0000-0000-0000-000000000509' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '6b169245-632b-43ee-8ceb-446630eaf122' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '5e91af29-d0c5-4b51-b23c-d8e115b9d7e8' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '7394a544-88a5-4205-8da8-ebd03c8aa593' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '4459ec86-89da-4f84-8036-469cad6b2e67' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '59be02a3-e13e-4591-b3f7-7e71e71e25c9' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'b0d8d403-0f9f-4b25-8cc0-0be2f5e0a960' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '1a5147a4-572d-4d62-b295-7b640c9c7c09' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '48138c4e-8472-4aaf-a2e7-e80ef7b4da5f' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'feb50663-cbe0-4c1d-b8f3-0ee7827af042' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '3ca5a429-0e77-41e7-bac6-34c1dc22f042' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '494090b5-4b06-4536-99d1-6a997333f015' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '11652e55-df0d-42f3-9632-e79087d2f50d' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '3e1961ea-81d2-4a26-a9e4-51ce7eb61961' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'fa866002-857c-4886-a0e4-4dafda2abc18' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '15d493da-6c3b-46f1-b020-ad55fc152f82' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '8227f147-134b-4f03-be38-646a3475afa3' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'ec1e53d9-85c2-468d-ae68-9189f1472602' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = '3d835a79-8b31-4487-bb09-a8aae2b6739c' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'cfef13d9-70da-4ff8-9aec-b50fb0bb7c23' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = 'a2000001-0000-0000-0000-000000000006' WHERE id = 'c4367223-cd9b-4898-83f8-e2f64c1391c9' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+-- UNASSIGNED (NULL)
+UPDATE machines SET array_id = NULL WHERE id = '915611d8-805d-4b13-9b16-a6a3b211ad63' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = NULL WHERE id = 'efa5bdef-cde5-4a90-bbfe-c9d90c3466c3' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = NULL WHERE id = 'da04aa3a-55fb-4f57-b9dd-2756d83cc267' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = NULL WHERE id = 'e9afa98c-9f53-4f8f-ad4d-ebad2503df27' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = NULL WHERE id = 'e580bdc6-8596-467a-b8bf-d23274caf869' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = NULL WHERE id = '39d7f011-1b50-4fc2-bf10-dfb8ac57e8b0' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+UPDATE machines SET array_id = NULL WHERE id = '79976665-4625-4c55-bffc-788be4f18954' AND tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842';
+
+COMMIT;
+
+-- verification: count machines per array
+SELECT array_id, COUNT(*) AS machine_count
+FROM machines
+WHERE tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842' AND is_active = true
+GROUP BY array_id
+ORDER BY array_id NULLS FIRST;
+
+-- verification: count unassigned machines
+SELECT COUNT(*) AS unassigned_count
+FROM machines
+WHERE tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842' AND is_active = true AND array_id IS NULL;
+
+-- verification: full tenant machine list
+SELECT id, name, code, array_id, is_active
+FROM machines
+WHERE tenant_id = 'beed1fc4-ffbb-4ea1-b7c8-d84584506842'
+ORDER BY name;

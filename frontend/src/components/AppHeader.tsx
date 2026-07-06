@@ -9,9 +9,10 @@ type Props = {
   showHome?: boolean;
   showLogout?: boolean;
   onLogout?: () => void;
+  onBack?: () => void;
 };
 
-export function AppHeader({ title, showBack, showHome, showLogout, onLogout }: Props) {
+export function AppHeader({ title, showBack, showHome, showLogout, onLogout, onBack }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isRTL, language, setLanguage, t } = useLanguage();
@@ -28,7 +29,7 @@ export function AppHeader({ title, showBack, showHome, showLogout, onLogout }: P
           {showBack && (
             <button
               type="button"
-              onClick={() => navigate(-1)}
+              onClick={() => (onBack ? onBack() : navigate(-1))}
               className="p-2 hover:bg-neutral-100 rounded-lg active:bg-neutral-200 transition-colors"
               aria-label={t('common.back')}
             >

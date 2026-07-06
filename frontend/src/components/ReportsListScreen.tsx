@@ -1,24 +1,44 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
-import { Calendar, Loader2, RefreshCw } from 'lucide-react';
+import { Calendar, ClipboardCheck, ClipboardList, Droplets, FileText, Loader2, RefreshCw, Truck } from 'lucide-react';
 import { AnnualPlanReportScreen } from './AnnualPlanReportScreen';
+import { ForkliftReportsScreen } from './ForkliftReportsScreen';
 import { MaintenanceTasksReportScreen } from './reports/MaintenanceTasksReportScreen';
+import { ReportLocationHeader } from './reports/ReportLocationHeader';
 import { getMorningRounds } from '../services/morningRoundsService';
+import { listMorningRoundV2Reports } from '../services/morningRoundV2Service';
 import { getMaintenance } from '../services/maintenanceService';
+import { getHierarchy, type HierarchyArray } from '../services/hierarchyService';
+import { getMachineComponents, type MachineComponentOption } from '../services/machineComponentService';
 import { getTreatments } from '../services/treatmentService';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { AppHeader } from './AppHeader';
+import { canSeeMorningRoundV2 } from '../auth/roles';
 import type { MorningRoundDto } from '../types/morningRound';
 import type { MaintenanceEntryDto } from '../types/maintenance';
 import type { TreatmentDto } from '../types/treatment';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/formatDate';
 import { formatTechnician } from '../utils/formatTechnician';
-import type { ReportListItem, ReportsListScreenProps } from '../types/reports';
+import type { MorningRoundReportVariant, ReportListItem, ReportsListReturnContext, ReportsListScreenProps } from '../types/reports';
 
-export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
+function parseMaintenanceV2Description(description: string): { component: string; details: string } | null {
+  const text = description ?? '';
+  const parts = text.split('\n');
+  if (parts.length < 2) return null;
+  const component = (parts[0] ?? '').trim();
+  const details = parts.slice(1).join('\n').trim();
+  if (!component) return null;
+  return { component, details };
+}
+
+export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: ReportsListScreenProps) {
   const { t, language } = useLanguage();
+  const location = useLocation();
+  const restoredContextRef = useRef(false);
   const [selectedType, setSelectedType] =
-    useState<'morning' | 'maintenance' | 'maintenance-tasks' | 'treatments' | 'annual-plans' | null>(null);
+    useState<'morning' | 'maintenance' | 'maintenance-tasks' | 'treatments' | 'annual-plans' | 'forklift' | null>(null);
+  const [morningVariant, setMorningVariant] = useState<MorningRoundReportVariant | null>(null);
   const [filterDate, setFilterDate] = useState('');
   const [morningReports, setMorningReports] = useState<ReportListItem[]>([]);
   const [isLoadingMorning, setIsLoadingMorning] = useState(false);
@@ -27,6 +47,88 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [annualPlanYear, setAnnualPlanYear] = useState('');
   const [annualPlanType, setAnnualPlanType] = useState<'Preventive' | 'Summer' | ''>('');
+  const [tasksExpandedId, setTasksExpandedId] = useState<string | null>(null);
+
+  const [hierarchy, setHierarchy] = useState<HierarchyArray[]>([]);
+  const [isLoadingHierarchy, setIsLoadingHierarchy] = useState(false);
+  const [selectedArrayId, setSelectedArrayId] = useState('');
+  const [selectedMachineId, setSelectedMachineId] = useState('');
+  const [selectedComponentLabel, setSelectedComponentLabel] = useState('');
+  const [componentOptions, setComponentOptions] = useState<MachineComponentOption[]>([]);
+  const [isLoadingComponents, setIsLoadingComponents] = useState(false);
+
+  useEffect(() => {
+    if (restoredContextRef.current) return;
+
+    const ctx = (
+      location.state as { reportsListContext?: ReportsListReturnContext } | null
+    )?.reportsListContext;
+    if (!ctx) return;
+
+    restoredContextRef.current = true;
+    setSelectedType(ctx.selectedType);
+    if (ctx.selectedType === 'morning') {
+      setMorningVariant(ctx.morningVariant ?? null);
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    if (selectedType !== 'maintenance-tasks') {
+      setTasksExpandedId(null);
+    }
+  }, [selectedType]);
+
+  useEffect(() => {
+    if (selectedType !== 'maintenance') return;
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        setIsLoadingHierarchy(true);
+        const data = await getHierarchy();
+        if (cancelled) return;
+        setHierarchy(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setHierarchy([]);
+      } finally {
+        if (!cancelled) setIsLoadingHierarchy(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedType]);
+
+  useEffect(() => {
+    if (selectedType !== 'maintenance') return;
+    if (!selectedMachineId) {
+      setComponentOptions([]);
+      return;
+    }
+
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setIsLoadingComponents(true);
+        const list = await getMachineComponents(selectedMachineId);
+        if (cancelled) return;
+        setComponentOptions(Array.isArray(list) ? list : []);
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setComponentOptions([]);
+      } finally {
+        if (!cancelled) setIsLoadingComponents(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMachineId, selectedType]);
 
   const currentYear = new Date().getFullYear();
   const annualPlanYears = Array.from({ length: 7 }, (_, i) => String(currentYear - 3 + i));
@@ -42,27 +144,45 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
   }, [search]);
 
   useEffect(() => {
-    if (selectedType !== 'morning') return;
+    if (selectedType !== 'morning' || !morningVariant) return;
 
     let cancelled = false;
     const load = async () => {
       try {
         setIsLoadingMorning(true);
         setLoadError(null);
-        const list = await getMorningRounds();
-        if (cancelled) return;
-        const mapped: ReportListItem[] = list.map((r: MorningRoundDto) => ({
-          id: r.id,
-          date: r.reportDate,
-          submittedBy: r.performedByName,
-          submittedAt: r.performedAt,
-          type: 'morning',
-        }));
-        setMorningReports(mapped);
+
+        if (morningVariant === 'v1') {
+          const list = await getMorningRounds();
+          if (cancelled) return;
+          const mapped: ReportListItem[] = list.map((r: MorningRoundDto) => ({
+            id: r.id,
+            date: r.reportDate,
+            submittedBy: r.performedByName,
+            submittedAt: r.performedAt,
+            type: 'morning',
+          }));
+          setMorningReports(mapped);
+        } else {
+          const list = await listMorningRoundV2Reports();
+          if (cancelled) return;
+          const mapped: ReportListItem[] = (Array.isArray(list) ? list : []).map((r) => ({
+            id: r.reportId,
+            date: r.date.slice(0, 10),
+            submittedBy: r.submittedBy.fullName,
+            submittedAt: r.submittedAt,
+            type: 'morning-v2',
+          }));
+          setMorningReports(mapped);
+        }
       } catch (err) {
         console.error(err);
         if (!cancelled) {
-          setLoadError(t('messages.failedToLoadMorningRoundReports'));
+          setLoadError(
+            morningVariant === 'v1'
+              ? t('messages.failedToLoadMorningRoundReports')
+              : t('messages.failedToLoadMorningRoundV2Reports')
+          );
         }
       } finally {
         if (!cancelled) {
@@ -75,13 +195,14 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedType]);
+  }, [selectedType, morningVariant, t]);
 
   const fetchMaintenancePage = useCallback(
     async (pageNumber: number, pageSize: number) => {
       const list = await getMaintenance({
         pageNumber,
         pageSize,
+        machineId: selectedMachineId || undefined,
         search: debouncedSearch.length >= 2 ? debouncedSearch : undefined,
       });
       const items: ReportListItem[] = (list as MaintenanceEntryDto[]).map((m) => ({
@@ -90,10 +211,13 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
         submittedBy: m.employeeName,
         submittedAt: m.createdAt,
         type: 'maintenance',
+        machineId: m.machineId,
+        maintenanceTypeCode: m.maintenanceTypeCode ?? null,
+        description: m.description,
       }));
       return { items };
     },
-    [debouncedSearch]
+    [debouncedSearch, selectedMachineId]
   );
 
   const fetchTreatmentsPage = useCallback(
@@ -118,7 +242,7 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
   const maintenanceScroll = useInfiniteScroll<ReportListItem>({
     fetchPage: fetchMaintenancePage,
     pageSize: 20,
-    resetKey: debouncedSearch,
+    resetKey: `${debouncedSearch}|${selectedArrayId}|${selectedMachineId}|${selectedComponentLabel}`,
     enabled: selectedType === 'maintenance',
   });
 
@@ -130,7 +254,7 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
   });
 
   const reports =
-    selectedType === 'morning'
+    selectedType === 'morning' && morningVariant
       ? morningReports
       : selectedType === 'maintenance'
         ? maintenanceScroll.items
@@ -138,69 +262,221 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
           ? treatmentsScroll.items
           : [];
 
-  const filteredReports = filterDate 
-    ? reports.filter(r => r.date === filterDate)
+  const filteredReports = filterDate
+    ? reports.filter((r) => r.date === filterDate)
     : reports;
+
+  const activeArrays = useMemo(
+    () => hierarchy.filter((array) => array.arrayId != null),
+    [hierarchy]
+  );
+
+  const machinesForSelectedArray = useMemo(() => {
+    if (!selectedArrayId) return [];
+    const array = activeArrays.find((a) => a.arrayId === selectedArrayId);
+    return array?.machines ?? [];
+  }, [activeArrays, selectedArrayId]);
+
+  const machineIdsForSelectedArray = useMemo(() => {
+    if (!selectedArrayId) return null;
+    return new Set(machinesForSelectedArray.map((m) => m.id));
+  }, [machinesForSelectedArray, selectedArrayId]);
+
+  const filteredMaintenanceReports = useMemo(() => {
+    if (selectedType !== 'maintenance') return filteredReports;
+    return filteredReports.filter((r) => {
+      if (machineIdsForSelectedArray && (!r.machineId || !machineIdsForSelectedArray.has(r.machineId))) {
+        return false;
+      }
+
+      if (selectedComponentLabel) {
+        if (r.maintenanceTypeCode !== 'other' || !r.description) return false;
+        const parsed = parseMaintenanceV2Description(r.description);
+        return parsed?.component === selectedComponentLabel;
+      }
+
+      return true;
+    });
+  }, [filteredReports, machineIdsForSelectedArray, selectedComponentLabel, selectedType]);
+
+  const showMorningVariantPicker = selectedType === 'morning' && morningVariant === null;
+  const showMorningReportList = selectedType === 'morning' && morningVariant !== null;
+  const morningRoundV2Enabled = canSeeMorningRoundV2(userRoleId);
+
+  const handleMorningTypeSelect = () => {
+    setMorningVariant(null);
+    setMorningReports([]);
+    setFilterDate('');
+    setLoadError(null);
+    setSelectedType('morning');
+  };
+
+  const handleBackFromMorningList = () => {
+    setMorningVariant(null);
+    setMorningReports([]);
+    setFilterDate('');
+    setLoadError(null);
+  };
+
+  const buildReturnContext = (): ReportsListReturnContext | null => {
+    if (!selectedType || selectedType === 'maintenance-tasks' || selectedType === 'annual-plans') {
+      return null;
+    }
+
+    return {
+      selectedType,
+      morningVariant: selectedType === 'morning' ? morningVariant : undefined,
+    };
+  };
+
+  const handleHeaderBack = () => {
+    if (selectedType === 'maintenance-tasks' && tasksExpandedId) {
+      setTasksExpandedId(null);
+      return;
+    }
+
+    if (selectedType === 'annual-plans' && annualPlanType) {
+      setAnnualPlanType('');
+      return;
+    }
+
+    if (selectedType === 'annual-plans' && annualPlanYear) {
+      setAnnualPlanYear('');
+      return;
+    }
+
+    if (selectedType === 'morning' && morningVariant) {
+      handleBackFromMorningList();
+      return;
+    }
+
+    if (selectedType) {
+      setSelectedType(null);
+      setFilterDate('');
+      setSearch('');
+      return;
+    }
+
+    onBack();
+  };
+
+  const locationSegments = useMemo(() => {
+    const segments = [t('reports.title')];
+    if (!selectedType) {
+      return segments;
+    }
+
+    if (selectedType === 'morning') {
+      segments.push(t('reports.morningRound'));
+      if (morningVariant === 'v1') {
+        segments.push(t('reports.morningRoundV1'));
+      } else if (morningVariant === 'v2') {
+        segments.push(t('reports.morningRoundV2'));
+      }
+      return segments;
+    }
+
+    if (selectedType === 'maintenance') {
+      segments.push(t('reports.maintenanceLog'));
+    } else if (selectedType === 'maintenance-tasks') {
+      segments.push(t('reports.tasks.menuTitle'));
+    } else if (selectedType === 'treatments') {
+      segments.push(t('treatments.title'));
+    } else if (selectedType === 'annual-plans') {
+      segments.push(t('home.annualPlans'));
+      if (annualPlanYear) {
+        segments.push(annualPlanYear);
+      }
+      if (annualPlanType === 'Preventive') {
+        segments.push(t('annual.preventive'));
+      } else if (annualPlanType === 'Summer') {
+        segments.push(t('annual.summer'));
+      }
+    }
+
+    return segments;
+  }, [selectedType, morningVariant, annualPlanYear, annualPlanType, t]);
+
+  if (selectedType === 'forklift') {
+    return <ForkliftReportsScreen onBack={() => setSelectedType(null)} />;
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50">
-      <AppHeader title={t('reports.title')} showBack={true} showHome={true} />
+      <AppHeader
+        title={t('reports.title')}
+        showBack={true}
+        showHome={true}
+        onBack={handleHeaderBack}
+      />
 
-      <div className="p-4">
+      <div className="p-4 space-y-3">
+        <ReportLocationHeader segments={locationSegments} />
         {!selectedType ? (
           /* Report Type Selection */
           <div className="space-y-3">
             <h2 className="text-sm font-medium text-neutral-600 mb-3">
             </h2>
             <button
-              onClick={() => setSelectedType('morning')}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+              onClick={handleMorningTypeSelect}
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 flex flex-col items-center justify-center gap-2 text-center hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
             >
-              <div className="text-base font-semibold text-neutral-900 mb-1">
+              <ClipboardList className="w-6 h-6 text-neutral-700" />
+              <div className="text-base font-semibold text-neutral-900">
                 {t('reports.morningRound')}
-              </div>
-              <div className="text-sm text-neutral-500">
               </div>
             </button>
             <button
               onClick={() => setSelectedType('maintenance')}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 flex flex-col items-center justify-center gap-2 text-center hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
             >
-              <div className="text-base font-semibold text-neutral-900 mb-1">
+              <FileText className="w-6 h-6 text-neutral-700" />
+              <div className="text-base font-semibold text-neutral-900">
                 {t('reports.maintenanceLog')}
               </div>
-                <div className="text-sm text-neutral-500">
-                </div>
             </button>
             <button
               onClick={() => setSelectedType('maintenance-tasks')}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 flex flex-col items-center justify-center gap-2 text-center hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
             >
-              <div className="text-base font-semibold text-neutral-900 mb-1">
+              <ClipboardCheck className="w-6 h-6 text-neutral-700" />
+              <div className="text-base font-semibold text-neutral-900">
                 {t('reports.tasks.menuTitle')}
               </div>
             </button>
             <button
               onClick={() => setSelectedType('annual-plans')}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 flex flex-col items-center justify-center gap-2 text-center hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
             >
-              <div className="text-base font-semibold text-neutral-900 mb-1">
+              <Calendar className="w-6 h-6 text-neutral-700" />
+              <div className="text-base font-semibold text-neutral-900">
                 {t('home.annualPlans')}
               </div>
             </button>
             <button
               onClick={() => setSelectedType('treatments')}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 flex flex-col items-center justify-center gap-2 text-center hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
             >
-              <div className="text-base font-semibold text-neutral-900 mb-1">
+              <Droplets className="w-6 h-6 text-neutral-700" />
+              <div className="text-base font-semibold text-neutral-900">
                 {t('treatments.title')}
               </div>
-              <div className="text-sm text-neutral-500">
+            </button>
+            <button
+              onClick={() => setSelectedType('forklift')}
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 flex flex-col items-center justify-center gap-2 text-center hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+            >
+              <Truck className="w-6 h-6 text-neutral-700" />
+              <div className="text-base font-semibold text-neutral-900">
+                {t('forkliftReports.title')}
               </div>
             </button>
           </div>
         ) : selectedType === 'maintenance-tasks' ? (
-          <MaintenanceTasksReportScreen />
+          <MaintenanceTasksReportScreen
+            expandedId={tasksExpandedId}
+            onExpandedIdChange={setTasksExpandedId}
+          />
         ) : selectedType === 'annual-plans' ? (
           <div className="space-y-4">
             <div className="bg-white border border-neutral-200 rounded-lg p-3 space-y-3">
@@ -258,7 +534,31 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
               />
             )}
           </div>
-        ) : (
+        ) : showMorningVariantPicker ? (
+          <div className="space-y-3">
+            <h2 className="text-sm font-medium text-neutral-600 mb-1">
+              {t('reports.morningRound')}
+            </h2>
+            <button
+              onClick={() => setMorningVariant('v1')}
+              className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+            >
+              <div className="text-base font-semibold text-neutral-900">
+                {t('reports.morningRoundV1')}
+              </div>
+            </button>
+            {morningRoundV2Enabled && (
+              <button
+                onClick={() => setMorningVariant('v2')}
+                className="w-full bg-white border border-neutral-200 rounded-lg p-5 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+              >
+                <div className="text-base font-semibold text-neutral-900">
+                  {t('reports.morningRoundV2')}
+                </div>
+              </button>
+            )}
+          </div>
+        ) : showMorningReportList || selectedType === 'maintenance' || selectedType === 'treatments' ? (
           /* Report List */
           <div className="space-y-4">
             {/* Date & Search Filters */}
@@ -298,14 +598,87 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
                   />
                 </div>
               )}
+
+              {selectedType === 'maintenance' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-700 mb-1">
+                      {t('reports.maintenanceFilters.array')}
+                    </label>
+                    <select
+                      value={selectedArrayId}
+                      disabled={isLoadingHierarchy}
+                      onChange={(e) => {
+                        const nextArrayId = e.target.value;
+                        setSelectedArrayId(nextArrayId);
+                        setSelectedMachineId('');
+                        setSelectedComponentLabel('');
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-neutral-300 rounded text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800"
+                    >
+                      <option value="">{t('reports.maintenanceFilters.allArrays')}</option>
+                      {activeArrays.map((array) => (
+                        <option key={array.arrayId!} value={array.arrayId!}>
+                          {t(array.nameKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-700 mb-1">
+                      {t('reports.maintenanceFilters.machine')}
+                    </label>
+                    <select
+                      value={selectedMachineId}
+                      disabled={!selectedArrayId}
+                      onChange={(e) => {
+                        setSelectedMachineId(e.target.value);
+                        setSelectedComponentLabel('');
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-neutral-300 rounded text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800 disabled:bg-neutral-50 disabled:text-neutral-500"
+                    >
+                      <option value="">{t('reports.maintenanceFilters.allMachines')}</option>
+                      {machinesForSelectedArray.map((machine) => (
+                        <option key={machine.id} value={machine.id}>
+                          {t(machine.name)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-neutral-700 mb-1">
+                      {t('reports.maintenanceFilters.component')}
+                    </label>
+                    <select
+                      value={selectedComponentLabel}
+                      disabled={!selectedMachineId || isLoadingComponents}
+                      onChange={(e) => setSelectedComponentLabel(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-neutral-300 rounded text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800 disabled:bg-neutral-50 disabled:text-neutral-500"
+                    >
+                      <option value="">{t('reports.maintenanceFilters.allComponents')}</option>
+                      {componentOptions.map((c) => (
+                        <option key={c.id} value={t(c.nameKey)}>
+                          {t(c.nameKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Reports */}
             <div className="flex flex-col gap-4 py-4">
-              {filteredReports.map((report) => (
+              {(selectedType === 'maintenance' ? filteredMaintenanceReports : filteredReports).map((report) => (
                 <button
                   key={report.id}
-                  onClick={() => onSelectReport(report.id, report.type)}
+                  onClick={() => {
+                    const returnContext = buildReturnContext();
+                    if (!returnContext) return;
+                    onSelectReport(report.id, report.type, returnContext);
+                  }}
                   className="w-full bg-white border border-neutral-200 rounded-lg p-4 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors touch-manipulation"
                 >
                   <div className="flex items-start justify-between mb-2">
@@ -367,7 +740,7 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
                 </>
               )}
 
-              {filteredReports.length === 0 &&
+              {(selectedType === 'maintenance' ? filteredMaintenanceReports : filteredReports).length === 0 &&
                 (selectedType === 'morning'
                   ? !isLoadingMorning
                   : selectedType === 'maintenance'
@@ -383,7 +756,7 @@ export function ReportsListScreen({ onSelectReport }: ReportsListScreenProps) {
                 )}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

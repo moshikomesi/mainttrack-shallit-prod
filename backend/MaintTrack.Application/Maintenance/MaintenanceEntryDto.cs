@@ -5,6 +5,7 @@ namespace MaintTrack.Application.Maintenance;
 public sealed record MaintenanceEntryDto(
     Guid Id,
     Guid MachineId,
+    Guid? ArrayId,
     DateOnly Date,
     Guid? MaintenanceTypeId,
     string? MaintenanceTypeCode,

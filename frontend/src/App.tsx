@@ -1,26 +1,30 @@
 import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, useLocation, Navigate } from 'react-router-dom';
 import { getUserRoleId } from './auth/authSession';
-import { ROLE, canSeeForklift, canSeeReports, canSeeTreatments, type RoleId } from './auth/roles';
+import { ROLE, canSeeForklift, canSeeMorningRound, canUseMorningRoundV2Submission, canSeeReports, canSeeTreatments, type RoleId } from './auth/roles';
 import { fetchCurrentUser, logout } from './services/authService';
 import { LanguageProvider } from './context/LanguageContext';
 import { LoginScreen } from './components/LoginScreen';
 import { HomeScreen } from './components/HomeScreen';
 import { MorningRoundScreen } from './components/MorningRoundScreen';
+import { MorningRoundV2Screen } from './components/MorningRoundV2Screen';
 import { MaintenanceLogScreen } from './components/MaintenanceLogScreen';
+import { MaintenanceLogV2Screen } from './components/MaintenanceLogV2Screen';
 import { MaintenanceTasksLogScreen } from './components/MaintenanceTasksLogScreen';
 import { TreatmentsReportScreen } from './components/TreatmentsReportScreen';
 import { ForkliftReportScreen } from './components/ForkliftReportScreen';
 import { AnnualPlansScreen } from './components/AnnualPlansScreen';
 import { ReportsListScreen } from './components/ReportsListScreen';
 import { ReportDetailsScreen } from './components/ReportDetailsScreen';
-import type { ReportType } from './types/reports';
+import type { ReportType, ReportsListReturnContext } from './types/reports';
 import { SettingsScreen } from './components/SettingsScreen';
 
 const screenIdToPath: Record<string, string> = {
   morningRound: '/morning-round',
+  morningRoundV2: '/morning-round-v2',
   maintenanceLog: '/maintenance',
+  maintenanceLogV2: '/maintenance-v2',
   maintenanceTasksLog: '/maintenance-tasks',
   treatments: '/treatments',
   forklift: '/forklift',
@@ -68,8 +72,14 @@ function AppRoutes() {
     navigate('/login');
   };
 
-  const handleSelectReport = (reportId: string, type: ReportType) => {
-    navigate(`/reports/${type}/${reportId}`);
+  const handleSelectReport = (
+    reportId: string,
+    type: ReportType,
+    returnContext: ReportsListReturnContext
+  ) => {
+    navigate(`/reports/${type}/${reportId}`, {
+      state: { reportsListContext: returnContext },
+    });
   };
 
   const handleReportSubmitted = () => {
@@ -114,12 +124,40 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/morning-round-v2"
+          element={
+            !isLoggedIn ? (
+              <Navigate to="/login" replace />
+            ) : !canUseMorningRoundV2Submission(userRoleId) ? (
+              <Navigate to="/home" replace />
+            ) : (
+              <MorningRoundV2Screen
+                onBack={() => navigate('/home')}
+                onSubmit={handleReportSubmitted}
+              />
+            )
+          }
+        />
+        <Route
           path="/maintenance"
           element={
             !isLoggedIn ? (
               <Navigate to="/login" replace />
             ) : (
               <MaintenanceLogScreen
+                onBack={() => navigate('/home')}
+                onSubmit={handleReportSubmitted}
+              />
+            )
+          }
+        />
+        <Route
+          path="/maintenance-v2"
+          element={
+            !isLoggedIn ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <MaintenanceLogV2Screen
                 onBack={() => navigate('/home')}
                 onSubmit={handleReportSubmitted}
               />
@@ -208,7 +246,7 @@ function AppRoutes() {
             !isLoggedIn ? (
               <Navigate to="/login" replace />
             ) : (
-              <ReportDetailsRoute onBack={() => navigate('/reports')} userRoleId={userRoleId} />
+              <ReportDetailsRoute userRoleId={userRoleId} />
             )
           }
         />
@@ -228,13 +266,13 @@ function AppRoutes() {
 }
 
 function ReportDetailsRoute({
-  onBack,
   userRoleId,
 }: {
-  onBack: () => void;
   userRoleId: number;
 }) {
   const { id, type } = useParams<{ id: string; type: ReportType }>();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   if (!id || !type) {
     return <Navigate to="/home" replace />;
@@ -248,8 +286,15 @@ function ReportDetailsRoute({
     return <Navigate to="/home" replace />;
   }
 
+  const handleBack = () => {
+    const reportsListContext = (
+      location.state as { reportsListContext?: ReportsListReturnContext } | null
+    )?.reportsListContext;
+    navigate('/reports', { state: reportsListContext ? { reportsListContext } : undefined });
+  };
+
   return (
-    <ReportDetailsScreen reportId={id} reportType={type} onBack={onBack} />
+    <ReportDetailsScreen reportId={id} reportType={type} onBack={handleBack} />
   );
 }
 

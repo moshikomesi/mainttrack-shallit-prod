@@ -26,6 +26,16 @@ export function canSeeMorningRound(roleId: number): boolean {
   return roleId >= ROLE.WORKER;
 }
 
+/** Morning Round v2 submission — same access as Morning Round (any authenticated worker+). */
+export function canUseMorningRoundV2Submission(roleId: number): boolean {
+  return canSeeMorningRound(roleId);
+}
+
+/** Reports section: Morning Round v2 report list/detail (unchanged). */
+export function canSeeMorningRoundV2(roleId: number): boolean {
+  return roleId === ROLE.SUPER_ADMIN;
+}
+
 export function canSeeBasicSettings(roleId: number): boolean {
   return roleId >= ROLE.WORKER;
 }

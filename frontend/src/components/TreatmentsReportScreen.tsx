@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { Navigate } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { AppHeader } from './AppHeader';
+import { ReadOnlyDateBanner } from './ReadOnlyDateBanner';
 import { validateRequired } from '../utils/validateForm';
 import { createTreatment } from '../services/treatmentService';
 import { getMachines, type MachineDto } from '../services/machinesService';
@@ -156,6 +157,8 @@ export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsRepor
       <AppHeader title={t('treatments.title')} showBack={true} showHome={true} />
 
       <div className="p-4 space-y-4">
+        <ReadOnlyDateBanner date={date} />
+
         {/* Equipment Selection */}
         <div className="bg-white border border-neutral-200 rounded-lg p-4">
           <label className="block text-sm font-medium text-neutral-700 mb-3">
@@ -187,24 +190,6 @@ export function TreatmentsReportScreen({ onSubmit, userRoleId }: TreatmentsRepor
 
         {/* Treatment Details */}
         <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-4">
-          {/* Date */}
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-2">
-              {t('common.date')}
-              <span className="text-red-500 ms-1">*</span>
-            </label>
-            <input
-              id="field-treatments-date"
-              type="date"
-              value={date}
-              onChange={(e) => { setDate(e.target.value); if (invalidFieldId === 'field-treatments-date') { setInvalidFieldId(null); setInvalidErrorKey(null); } }}
-              className={`w-full px-3 py-2.5 bg-white border rounded-lg text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800 ${invalidFieldId === 'field-treatments-date' ? 'border-red-500' : 'border-neutral-300'}`}
-            />
-            {invalidFieldId === 'field-treatments-date' && invalidErrorKey && (
-              <p className="text-red-500 text-sm mt-1">{t(invalidErrorKey)}</p>
-            )}
-          </div>
-
           {/* Maintenance Type */}
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-2">

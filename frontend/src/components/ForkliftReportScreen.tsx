@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { useLanguage } from '../context/LanguageContext';
 import { getForklifts } from '../services/forkliftsService';
@@ -6,6 +6,7 @@ import { createForkliftReport } from '../services/forkliftReportsService';
 import type { Forklift, ForkliftReportScreenProps } from '../types/forklift';
 import { validateRequired } from '../utils/validateForm';
 import { AppHeader } from './AppHeader';
+import { AddForkliftDialog } from './AddForkliftDialog';
 
 function formatDisplayDate(iso: string): string {
   const [date] = iso.split("T");
@@ -19,6 +20,7 @@ export function ForkliftReportScreen({ onSubmit }: ForkliftReportScreenProps) {
 
   const [forklifts, setForklifts] = useState<Forklift[]>([]);
   const [selectedForkliftId, setSelectedForkliftId] = useState('');
+  const [isAddForkliftOpen, setIsAddForkliftOpen] = useState(false);
 
   // Treatment section
   const [treatmentDate, setTreatmentDate] = useState(today);
@@ -38,17 +40,27 @@ export function ForkliftReportScreen({ onSubmit }: ForkliftReportScreenProps) {
   const [invalidErrorKey, setInvalidErrorKey] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    const loadForklifts = async () => {
-      try {
-        const data = await getForklifts();
-        setForklifts(data ?? []);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-    loadForklifts();
+  const loadForklifts = useCallback(async () => {
+    try {
+      const data = await getForklifts();
+      setForklifts(data ?? []);
+    } catch (err) {
+      console.error(err);
+    }
   }, []);
+
+  useEffect(() => {
+    loadForklifts();
+  }, [loadForklifts]);
+
+  const handleForkliftCreated = async (forkliftId: string) => {
+    await loadForklifts();
+    setSelectedForkliftId(forkliftId);
+    if (invalidFieldId === 'field-forklift') {
+      setInvalidFieldId(null);
+      setInvalidErrorKey(null);
+    }
+  };
 
   const selectedForklift = forklifts.find((f) => f.id === selectedForkliftId);
 
@@ -174,32 +186,39 @@ export function ForkliftReportScreen({ onSubmit }: ForkliftReportScreenProps) {
       <AppHeader title={t('forklift.title')} showBack={true} showHome={true} />
 
 
-      <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-4">   
-        <div>
-          <h2 className="text-base font-semibold text-neutral-900">
+      <div className="p-4 space-y-4">
+        <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-base font-semibold text-neutral-900">
               {t('common.forkliftnumber')}
               <span className="text-red-500 ml-1">*</span>
             </h2>
-            <select
-              id="field-forklift"
-              value={selectedForkliftId}
-              onChange={(e) => { setSelectedForkliftId(e.target.value); if (invalidFieldId === 'field-forklift') { setInvalidFieldId(null); setInvalidErrorKey(null); } }}
-              className={`w-full px-3 py-2.5 bg-white border rounded-lg text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800 ${invalidFieldId === 'field-forklift' ? 'border-red-500' : 'border-neutral-300'}`}
+            <button
+              type="button"
+              onClick={() => setIsAddForkliftOpen(true)}
+              className="shrink-0 px-3 py-1.5 border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
             >
-              <option value="">{t('common.forkliftnumber')}</option>
-              {forklifts.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.licenseNumber}
-                </option>
-              ))}
-            </select>
-            {invalidFieldId === 'field-forklift' && invalidErrorKey && (
-              <p className="text-red-500 text-sm mt-1">{t(invalidErrorKey)}</p>
-            )}
-          </div>  
+              {t('forklift.addDialog.add')}
+            </button>
+          </div>
+          <select
+            id="field-forklift"
+            value={selectedForkliftId}
+            onChange={(e) => { setSelectedForkliftId(e.target.value); if (invalidFieldId === 'field-forklift') { setInvalidFieldId(null); setInvalidErrorKey(null); } }}
+            className={`w-full px-3 py-2.5 bg-white border rounded-lg text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800 ${invalidFieldId === 'field-forklift' ? 'border-red-500' : 'border-neutral-300'}`}
+          >
+            <option value="">{t('common.forkliftnumber')}</option>
+            {forklifts.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.licenseNumber}
+              </option>
+            ))}
+          </select>
+          {invalidFieldId === 'field-forklift' && invalidErrorKey && (
+            <p className="text-red-500 text-sm mt-1">{t(invalidErrorKey)}</p>
+          )}
         </div>
-    
-      <div className="p-4 space-y-4">
+
         {/* Treatments Section */}
         <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-4">
           <h2 className="text-base font-semibold text-neutral-900">
@@ -319,6 +338,12 @@ export function ForkliftReportScreen({ onSubmit }: ForkliftReportScreenProps) {
           </div>
         </div>
       </div>
+
+      <AddForkliftDialog
+        open={isAddForkliftOpen}
+        onOpenChange={setIsAddForkliftOpen}
+        onCreated={handleForkliftCreated}
+      />
 
       {/* Submit Button - Sticky */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-neutral-200">

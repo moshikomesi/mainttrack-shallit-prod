@@ -193,6 +193,7 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
             .Select(x => new MaintenanceEntryDto(
                 x.Entry.Id,
                 x.Entry.MachineId,
+                x.Machine.ArrayId,
                 x.Entry.Date,
                 x.Entry.MaintenanceTypeId,
                 x.Type != null ? x.Type.Code : null,
@@ -212,12 +213,14 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
     public async Task<MaintenanceEntryDto?> GetByIdAsync(Guid id, CancellationToken ct)
     {
         var dto = await (from e in _dbContext.MaintenanceEntries.AsNoTracking()
+                         join m in _dbContext.Machines.AsNoTracking() on e.MachineId equals m.Id
                          join mt in _dbContext.MaintenanceTypes.AsNoTracking() on e.MaintenanceTypeId equals mt.Id into mtGroup
                          from mt in mtGroup.DefaultIfEmpty()
                          where e.Id == id
                          select new MaintenanceEntryDto(
                              e.Id,
                              e.MachineId,
+                             m.ArrayId,
                              e.Date,
                              e.MaintenanceTypeId,
                              mt != null ? mt.Code : null,

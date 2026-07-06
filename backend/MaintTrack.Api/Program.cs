@@ -8,6 +8,7 @@ using MaintTrack.Api.Middleware;
 using MaintTrack.Application.Abstractions;
 using MaintTrack.Application.Authentication;
 using MaintTrack.Application.Configuration;
+using MaintTrack.Application.Hierarchy;
 using MaintTrack.Application.Machines;
 using MaintTrack.Infrastructure.Authentication;
 using MaintTrack.Infrastructure.Machines;
@@ -19,9 +20,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using MaintTrack.Infrastructure.MorningRound;
+using MaintTrack.Infrastructure.MorningRoundV2;
 using MaintTrack.Application.MorningRound;
+using MaintTrack.Application.MorningRoundV2;
 using MaintTrack.Infrastructure.Storage;
 using MaintTrack.Application.Forklifts;
+using MaintTrack.Application.MachineComponents;
 using MaintTrack.Application.Maintenance;
 using MaintTrack.Application.MaintenanceTasks;
 using MaintTrack.Application.Reports.ForkliftReports;
@@ -30,6 +34,7 @@ using MaintTrack.Application.Treatments;
 using MaintTrack.Application.AnnualPlans;
 using MaintTrack.Infrastructure.Forklifts;
 using MaintTrack.Infrastructure.Maintenance;
+using MaintTrack.Infrastructure.MachineComponents;
 using MaintTrack.Infrastructure.MaintenanceTasks;
 using MaintTrack.Infrastructure.Reports;
 using MaintTrack.Infrastructure.Treatments;
@@ -68,6 +73,10 @@ builder.Services.AddScoped<
     IMachineService,
     MaintTrack.Infrastructure.Machines.MachineService>();
 
+builder.Services.AddScoped<
+    IHierarchyService,
+    MaintTrack.Infrastructure.Hierarchy.HierarchyService>();
+
 // Morning Round
 builder.Services.AddScoped<
     IMorningRoundService,
@@ -76,12 +85,18 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<
     IMorningRoundTemplateService,
     MorningRoundTemplateService>();
+
+builder.Services.AddScoped<
+    IMorningRoundV2Service,
+    MorningRoundV2Service>();
+
 // Maintenance
 builder.Services.AddScoped<
     IMaintenanceEntryService,
     MaintTrack.Infrastructure.Maintenance.MaintenanceEntryService>();
 
 builder.Services.AddScoped<IMaintenanceTypeService, MaintTrack.Infrastructure.Maintenance.MaintenanceTypeService>();
+builder.Services.AddScoped<IMachineComponentService, MachineComponentService>();
 builder.Services.AddScoped<IMaintenanceTasksRepository, MaintenanceTasksRepository>();
 builder.Services.AddScoped<IMaintenanceTasksService, MaintenanceTasksService>();
 
@@ -321,8 +336,11 @@ app.MapGet("/health", async (MaintTrackDbContext dbContext) =>
 
 app.MapAuth();
 app.MapMachines();
+app.MapHierarchyEndpoints();
 app.MapMorningRoundEndpoints();
+app.MapMorningRoundV2Endpoints();
 app.MapMaintenanceEntryEndpoints();
+app.MapMaintenanceLogV2Endpoints();
 app.MapMaintenanceTasksController();
 app.MapMaintenanceTypeEndpoints();
 app.MapTreatmentEndpoints();

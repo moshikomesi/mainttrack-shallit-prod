@@ -32,13 +32,25 @@ public sealed class ForkliftService : IForkliftService
         if (_tenantContext.TenantId is null)
             throw new InvalidOperationException("Tenant not resolved.");
 
+        var licenseNumber = (request.LicenseNumber ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(licenseNumber))
+            throw new InvalidOperationException("License number is required.");
+
+        var normalized = licenseNumber.ToLowerInvariant();
+        var duplicateExists = await _dbContext.Forklifts
+            .AsNoTracking()
+            .AnyAsync(f => f.LicenseNumber.ToLower() == normalized, ct);
+
+        if (duplicateExists)
+            throw new InvalidOperationException("Forklift license number already exists.");
+
         var now = DateTime.UtcNow;
         var forklift = new Forklift
         {
             Id = Guid.NewGuid(),
             TenantId = _tenantContext.TenantId.Value,
-            LicenseNumber = request.LicenseNumber,
-            Description = request.Description,
+            LicenseNumber = licenseNumber,
+            Description = request.Description?.Trim(),
             CreatedAt = now
         };
 

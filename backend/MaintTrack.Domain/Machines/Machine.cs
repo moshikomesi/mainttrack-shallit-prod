@@ -1,4 +1,5 @@
 using System;
+using MaintTrack.Domain.Arrays;
 using MaintTrack.Domain.Common;
 
 namespace MaintTrack.Domain.Machines;
@@ -15,5 +16,9 @@ public class Machine : TenantEntity
     public string? Description { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    public Guid? ArrayId { get; set; }
+
+    public WorkGroup? Array { get; set; }
 }
 

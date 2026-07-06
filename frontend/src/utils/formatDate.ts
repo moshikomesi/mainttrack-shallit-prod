@@ -47,6 +47,18 @@ export function formatDisplayDate(
   });
 }
 
+/** Read-only form date (e.g. DD/MM/YYYY per locale). */
+export function formatFormDate(language: Language, dateStr: string): string {
+  const date = parseDateInput(dateStr);
+  if (Number.isNaN(date.getTime())) return dateStr;
+
+  return date.toLocaleDateString(languageToLocale(language), {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
 export function formatDisplayDateTime(language: Language, dateStr: string): string {
   const date = parseDateInput(dateStr);
   if (Number.isNaN(date.getTime())) return dateStr;
