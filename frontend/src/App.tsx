@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { Routes, Route, useNavigate, useParams, useLocation, Navigate } from 'react-router-dom';
-import { getUserRoleId } from './auth/authSession';
+import { getUserRoleId, isNewMorningRoundEnabled, isNewMaintenanceLogEnabled } from './auth/authSession';
 import { ROLE, canSeeForklift, canSeeMorningRound, canUseMorningRoundV2Submission, canSeeReports, canSeeTreatments, type RoleId } from './auth/roles';
 import { fetchCurrentUser, logout } from './services/authService';
 import { LanguageProvider } from './context/LanguageContext';
@@ -23,8 +23,10 @@ import { SettingsScreen } from './components/SettingsScreen';
 const screenIdToPath: Record<string, string> = {
   morningRound: '/morning-round',
   morningRoundV2: '/morning-round-v2',
-  maintenanceLog: '/maintenance',
-  maintenanceLogV2: '/maintenance-v2',
+  // Legacy Maintenance Log keeps its own path; the new hierarchical Maintenance
+  // Log takes over the canonical "/maintenance" path once enabled per user.
+  maintenanceLog: '/maintenance-v1',
+  maintenanceLogV2: '/maintenance',
   maintenanceTasksLog: '/maintenance-tasks',
   treatments: '/treatments',
   forklift: '/forklift',
@@ -38,6 +40,14 @@ function AppRoutes() {
   const [authReady, setAuthReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userRoleId, setUserRoleId] = useState<RoleId>(ROLE.WORKER);
+  const [enableNewMorningRound, setEnableNewMorningRound] = useState(false);
+  const [enableNewMaintenanceLog, setEnableNewMaintenanceLog] = useState(false);
+
+  const syncSessionState = () => {
+    setUserRoleId(getUserRoleId());
+    setEnableNewMorningRound(isNewMorningRoundEnabled());
+    setEnableNewMaintenanceLog(isNewMaintenanceLogEnabled());
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +55,7 @@ function AppRoutes() {
       .then((user) => {
         if (cancelled || !user) return;
         setIsLoggedIn(true);
-        setUserRoleId(getUserRoleId());
+        syncSessionState();
       })
       .finally(() => {
         if (!cancelled) setAuthReady(true);
@@ -56,7 +66,7 @@ function AppRoutes() {
   }, []);
 
   const handleLogin = () => {
-    setUserRoleId(getUserRoleId());
+    syncSessionState();
     setIsLoggedIn(true);
   };
 
@@ -68,6 +78,8 @@ function AppRoutes() {
   const handleLogout = async () => {
     await logout();
     setUserRoleId(ROLE.WORKER);
+    setEnableNewMorningRound(false);
+    setEnableNewMaintenanceLog(false);
     setIsLoggedIn(false);
     navigate('/login');
   };
@@ -105,6 +117,8 @@ function AppRoutes() {
               <HomeScreen
                 onNavigate={handleNavigate}
                 userRoleId={userRoleId}
+                enableNewMorningRound={enableNewMorningRound}
+                enableNewMaintenanceLog={enableNewMaintenanceLog}
                 onLogout={handleLogout}
               />
             )
@@ -128,7 +142,7 @@ function AppRoutes() {
           element={
             !isLoggedIn ? (
               <Navigate to="/login" replace />
-            ) : !canUseMorningRoundV2Submission(userRoleId) ? (
+            ) : !canUseMorningRoundV2Submission(userRoleId) || !enableNewMorningRound ? (
               <Navigate to="/home" replace />
             ) : (
               <MorningRoundV2Screen
@@ -138,8 +152,9 @@ function AppRoutes() {
             )
           }
         />
+        {/* Legacy Maintenance Log (pre feature-flag rollout). */}
         <Route
-          path="/maintenance"
+          path="/maintenance-v1"
           element={
             !isLoggedIn ? (
               <Navigate to="/login" replace />
@@ -151,11 +166,15 @@ function AppRoutes() {
             )
           }
         />
+        {/* New hierarchical Maintenance Log — owns the canonical "/maintenance" path
+            once enabled per user via the enableNewMaintenanceLog feature flag. */}
         <Route
-          path="/maintenance-v2"
+          path="/maintenance"
           element={
             !isLoggedIn ? (
               <Navigate to="/login" replace />
+            ) : !enableNewMaintenanceLog ? (
+              <Navigate to="/home" replace />
             ) : (
               <MaintenanceLogV2Screen
                 onBack={() => navigate('/home')}

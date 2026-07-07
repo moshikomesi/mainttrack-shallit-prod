@@ -8,6 +8,10 @@ export interface AuthUser {
   displayName: string;
   role: string;
   roleId: number;
+  /** Feature flag: routes this user to Morning Round V2 instead of the legacy screen. */
+  enableNewMorningRound: boolean;
+  /** Feature flag: routes this user to the new hierarchical Maintenance Log instead of the legacy screen. */
+  enableNewMaintenanceLog: boolean;
 }
 
 let currentUser: AuthUser | null = null;
@@ -38,4 +42,12 @@ export function getUserRoleId(): RoleId {
 
 export function isAuthenticated(): boolean {
   return currentUser !== null;
+}
+
+export function isNewMorningRoundEnabled(): boolean {
+  return currentUser?.enableNewMorningRound ?? false;
+}
+
+export function isNewMaintenanceLogEnabled(): boolean {
+  return currentUser?.enableNewMaintenanceLog ?? false;
 }

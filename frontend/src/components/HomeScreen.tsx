@@ -2,46 +2,52 @@ import { useLanguage } from '../context/LanguageContext';
 import { ClipboardCheck, ClipboardList, FileText, Truck, List, Calendar, Droplets } from 'lucide-react';
 import { AppHeader } from './AppHeader';
 
-import { canSeeForklift, canSeeMaintenance, canSeeMorningRound, canUseMorningRoundV2Submission, canSeeReports, canSeeTreatments, canSeeAnnualPlans } from '../auth/roles';
+import { canSeeForklift, canSeeMaintenance, canSeeMorningRound, canSeeReports, canSeeTreatments, canSeeAnnualPlans } from '../auth/roles';
 
 interface HomeScreenProps {
   onNavigate: (screen: string) => void;
   userRoleId: number;
+  /** Per-user feature flag — see HomeScreenProps usage in App.tsx for how it's populated. */
+  enableNewMorningRound: boolean;
+  /** Per-user feature flag — see HomeScreenProps usage in App.tsx for how it's populated. */
+  enableNewMaintenanceLog: boolean;
   onLogout: () => void;
 }
 
-export function HomeScreen({ onNavigate, userRoleId, onLogout }: HomeScreenProps) {
+export function HomeScreen({
+  onNavigate,
+  userRoleId,
+  enableNewMorningRound,
+  enableNewMaintenanceLog,
+  onLogout,
+}: HomeScreenProps) {
   const { t } = useLanguage();
 
-  const morningRoundV2SubmissionEnabled = canUseMorningRoundV2Submission(userRoleId);
+  // Single menu entry per feature; the feature flag decides which screen (legacy vs
+  // new) the user is routed to. Never show both a v1 and v2 entry at once.
   const morningRoundMenuItem = canSeeMorningRound(userRoleId)
     ? {
-        id: morningRoundV2SubmissionEnabled ? 'morningRoundV2' : 'morningRound',
-        label: morningRoundV2SubmissionEnabled ? t('home.morningRoundV2') : t('home.morningRound'),
+        id: enableNewMorningRound ? 'morningRoundV2' : 'morningRound',
+        label: enableNewMorningRound ? t('home.morningRoundV2') : t('home.morningRound'),
         icon: ClipboardList,
         color: 'bg-slate-600',
         visible: true,
       }
     : null;
 
+  const maintenanceLogMenuItem = canSeeMaintenance(userRoleId)
+    ? {
+        id: enableNewMaintenanceLog ? 'maintenanceLogV2' : 'maintenanceLog',
+        label: enableNewMaintenanceLog ? t('home.maintenanceLogV2') : t('home.maintenanceLog'),
+        icon: FileText,
+        color: 'bg-teal-700',
+        visible: true,
+      }
+    : null;
+
   const menuItems = [
     ...(morningRoundMenuItem ? [morningRoundMenuItem] : []),
-    {
-      id: 'maintenanceLog',
-      label: t('home.maintenanceLog'),
-      icon: FileText,
-      color: 'bg-teal-700',
-      // V1 is hidden from the main menu; users navigate via the "maintenanceLogV2" entry instead.
-      visible: false,
-    },
-    {
-      id: 'maintenanceLogV2',
-      label: t('home.maintenanceLogV2'),
-      // Reuses the exact icon + color used by Maintenance Log V1.
-      icon: FileText,
-      color: 'bg-teal-700',
-      visible: canSeeMaintenance(userRoleId),
-    },
+    ...(maintenanceLogMenuItem ? [maintenanceLogMenuItem] : []),
     {
       id: 'maintenanceTasksLog',
       label: t('home.maintenanceTasksLog'),

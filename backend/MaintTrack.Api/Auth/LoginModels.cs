@@ -56,6 +56,18 @@ public sealed class CurrentUserResponse
     public string Role { get; init; } = string.Empty;
 
     public int RoleId { get; init; }
+
+    /// <summary>
+    /// Per-user feature flag. When true, the frontend routes this user to
+    /// Morning Round V2 instead of the legacy Morning Round screen.
+    /// </summary>
+    public bool EnableNewMorningRound { get; init; }
+
+    /// <summary>
+    /// Per-user feature flag. When true, the frontend routes this user to
+    /// the new hierarchical Maintenance Log instead of the legacy screen.
+    /// </summary>
+    public bool EnableNewMaintenanceLog { get; init; }
 }
 
 /// <summary>
@@ -76,5 +88,17 @@ public sealed class UserInfo
     public string Role { get; init; } = string.Empty;
 
     public int RoleId { get; init; }
+
+    /// <summary>
+    /// Per-user feature flag. When true, the frontend routes this user to
+    /// Morning Round V2 instead of the legacy Morning Round screen.
+    /// </summary>
+    public bool EnableNewMorningRound { get; init; }
+
+    /// <summary>
+    /// Per-user feature flag. When true, the frontend routes this user to
+    /// the new hierarchical Maintenance Log instead of the legacy screen.
+    /// </summary>
+    public bool EnableNewMaintenanceLog { get; init; }
 }
 

@@ -196,6 +196,16 @@ public class MaintTrackDbContext : DbContext
             .HasColumnName("is_active")
             .IsRequired();
 
+        entity.Property(x => x.EnableNewMorningRound)
+            .HasColumnName("enable_new_morning_round")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        entity.Property(x => x.EnableNewMaintenanceLog)
+            .HasColumnName("enable_new_maintenance_log")
+            .HasDefaultValue(false)
+            .IsRequired();
+
         entity.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();

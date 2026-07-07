@@ -19,6 +19,8 @@ interface AuthUserDto {
   displayName: string;
   role: string;
   roleId: number;
+  enableNewMorningRound: boolean;
+  enableNewMaintenanceLog: boolean;
 }
 
 function mapUser(dto: AuthUserDto): AuthUser {
@@ -30,6 +32,8 @@ function mapUser(dto: AuthUserDto): AuthUser {
     displayName: dto.displayName,
     role: dto.role,
     roleId: dto.roleId,
+    enableNewMorningRound: dto.enableNewMorningRound,
+    enableNewMaintenanceLog: dto.enableNewMaintenanceLog,
   };
 }
 

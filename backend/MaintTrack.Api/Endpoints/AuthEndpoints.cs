@@ -50,7 +50,9 @@ public static class AuthEndpoints
                     new Claim("role_id", user.RoleId.ToString()),
                     new Claim(ClaimTypes.Email, user.Email),
                     new Claim(ClaimTypes.Name, user.Username),
-                    new Claim("display_name", displayName)
+                    new Claim("display_name", displayName),
+                    new Claim("enable_new_morning_round", user.EnableNewMorningRound.ToString()),
+                    new Claim("enable_new_maintenance_log", user.EnableNewMaintenanceLog.ToString())
                 };
 
                 var token = jwtTokenService.GenerateToken(claims, expiresAtUtc);
@@ -71,7 +73,9 @@ public static class AuthEndpoints
                         Email = user.Email,
                         DisplayName = user.DisplayName,
                         Role = user.Role.Name,
-                        RoleId = user.RoleId
+                        RoleId = user.RoleId,
+                        EnableNewMorningRound = user.EnableNewMorningRound,
+                        EnableNewMaintenanceLog = user.EnableNewMaintenanceLog
                     }
                 };
 
@@ -98,6 +102,10 @@ public static class AuthEndpoints
 
                 var email = principal.FindFirst(ClaimTypes.Email)?.Value ?? string.Empty;
                 var username = principal.FindFirst(ClaimTypes.Name)?.Value ?? string.Empty;
+                var enableNewMorningRound = bool.TryParse(
+                    principal.FindFirst("enable_new_morning_round")?.Value, out var newMorningRound) && newMorningRound;
+                var enableNewMaintenanceLog = bool.TryParse(
+                    principal.FindFirst("enable_new_maintenance_log")?.Value, out var newMaintenanceLog) && newMaintenanceLog;
 
                 return Results.Ok(new CurrentUserResponse
                 {
@@ -107,7 +115,9 @@ public static class AuthEndpoints
                     Email = email,
                     DisplayName = currentUser.DisplayName,
                     Role = currentUser.Role.ToString(),
-                    RoleId = currentUser.RoleId
+                    RoleId = currentUser.RoleId,
+                    EnableNewMorningRound = enableNewMorningRound,
+                    EnableNewMaintenanceLog = enableNewMaintenanceLog
                 });
             })
             .RequireAuthorization()
