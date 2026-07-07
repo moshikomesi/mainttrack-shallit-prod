@@ -32,7 +32,8 @@ public sealed class MachineService : IMachineService
         var machines = await _dbContext.Machines
             .AsNoTracking()
             .Where(m => m.IsActive)
-            .OrderBy(m => m.Name)
+            .OrderBy(m => m.SortOrder)
+            .ThenBy(m => m.Name)
             .Select(m => new MachineDto(
                 m.Id,
                 m.Name,

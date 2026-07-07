@@ -56,7 +56,8 @@ public sealed class MorningRoundV2Service : IMorningRoundV2Service
         var machines = await _dbContext.Machines
             .AsNoTracking()
             .Where(m => m.IsActive && m.TenantId == tenantId)
-            .OrderBy(m => m.Name)
+            .OrderBy(m => m.SortOrder)
+            .ThenBy(m => m.Name)
             .Select(m => new HierarchyService.MachineHierarchyRow(m.Id, m.Name, m.ArrayId))
             .ToListAsync(ct);
 
@@ -248,34 +249,39 @@ public sealed class MorningRoundV2Service : IMorningRoundV2Service
             .ThenBy(a => a.NameKey)
             .ToListAsync(ct);
 
-        var machinesFromDb = machineIds.Count == 0
-            ? new List<HierarchyService.MachineHierarchyRow>()
-            : await _dbContext.Machines
+        var machineRowsFromDb = machineIds.Count == 0
+            ? new List<(HierarchyService.MachineHierarchyRow Row, int SortOrder)>()
+            : (await _dbContext.Machines
                 .AsNoTracking()
                 .Where(m => m.TenantId == tenantId && machineIds.Contains(m.Id))
-                .Select(m => new HierarchyService.MachineHierarchyRow(m.Id, m.Name, m.ArrayId))
-                .ToListAsync(ct);
+                .Select(m => new { m.Id, m.Name, m.ArrayId, m.SortOrder })
+                .ToListAsync(ct))
+                .Select(m => (
+                    Row: new HierarchyService.MachineHierarchyRow(m.Id, m.Name, m.ArrayId),
+                    SortOrder: m.SortOrder))
+                .ToList();
 
-        var machinesById = machinesFromDb.ToDictionary(m => m.Id);
-        var hierarchyMachines = new List<HierarchyService.MachineHierarchyRow>(machineIds.Count);
+        var machinesById = machineRowsFromDb.ToDictionary(m => m.Row.Id);
+        var unorderedMachines = new List<(HierarchyService.MachineHierarchyRow Row, int SortOrder)>(machineIds.Count);
 
         foreach (var machineId in machineIds)
         {
             if (machinesById.TryGetValue(machineId, out var machine))
             {
-                hierarchyMachines.Add(machine);
+                unorderedMachines.Add(machine);
             }
             else
             {
-                hierarchyMachines.Add(new HierarchyService.MachineHierarchyRow(
-                    machineId,
-                    "machine.unknown",
-                    null));
+                unorderedMachines.Add((
+                    new HierarchyService.MachineHierarchyRow(machineId, "machine.unknown", null),
+                    int.MaxValue));
             }
         }
 
-        hierarchyMachines = hierarchyMachines
-            .OrderBy(m => m.Name)
+        var hierarchyMachines = unorderedMachines
+            .OrderBy(m => m.SortOrder)
+            .ThenBy(m => m.Row.Name)
+            .Select(m => m.Row)
             .ToList();
 
         var hierarchy = HierarchyService.BuildHierarchy(arrays, hierarchyMachines);

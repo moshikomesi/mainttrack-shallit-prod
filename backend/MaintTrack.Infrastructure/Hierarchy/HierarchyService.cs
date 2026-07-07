@@ -45,7 +45,8 @@ public sealed class HierarchyService : IHierarchyService
         var machines = await _dbContext.Machines
             .AsNoTracking()
             .Where(m => m.IsActive && m.TenantId == tenantId)
-            .OrderBy(m => m.Name)
+            .OrderBy(m => m.SortOrder)
+            .ThenBy(m => m.Name)
             .Select(m => new MachineHierarchyRow(m.Id, m.Name, m.ArrayId))
             .ToListAsync(ct);
 

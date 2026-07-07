@@ -13,7 +13,18 @@ export type MorningRoundV2HierarchyArray = {
   arrayId: string | null;
   nameKey: string;
   machines: MorningRoundV2HierarchyMachine[];
+  // Optional nested arrays for presentation-only grouping (e.g. a "Cooling
+  // Array" parent containing "Water Cooling" and "Room Cooling"). When
+  // present, this section renders as an expandable group of sub-sections
+  // instead of a flat machine list.
+  children?: MorningRoundV2HierarchyArray[];
 };
+
+function countMachinesRecursively(array: MorningRoundV2HierarchyArray): number {
+  const own = array.machines.length;
+  const nested = array.children?.reduce((sum, child) => sum + countMachinesRecursively(child), 0) ?? 0;
+  return own + nested;
+}
 
 type Props = {
   arrays: MorningRoundV2HierarchyArray[];
@@ -67,7 +78,7 @@ export function MorningRoundV2HierarchyView({
                   {t(array.nameKey)}
                 </h2>
                 <p className="text-xs text-neutral-500 mt-0.5">
-                  {array.machines.length} {t('morningV2.machines')}
+                  {countMachinesRecursively(array)} {t('morningV2.machines')}
                 </p>
               </div>
               {isExpanded ? (
@@ -77,7 +88,24 @@ export function MorningRoundV2HierarchyView({
               )}
             </button>
 
-            {isExpanded && (
+            {isExpanded && array.children && array.children.length > 0 && (
+              <div className="divide-y divide-neutral-200 bg-neutral-50 p-2 space-y-2">
+                <MorningRoundV2HierarchyView
+                  arrays={array.children}
+                  expandedArrays={expandedArrays}
+                  onToggleArray={onToggleArray}
+                  t={t}
+                  readOnly={readOnly}
+                  onSelectFail={onSelectFail}
+                  onSelectPass={onSelectPass}
+                  onNotesChange={onNotesChange}
+                  onArrayFocus={onArrayFocus}
+                  onMachineFocus={onMachineFocus}
+                />
+              </div>
+            )}
+
+            {isExpanded && !array.children && (
               <div className="divide-y divide-neutral-200">
                 {array.machines.map((machine) => (
                   <div

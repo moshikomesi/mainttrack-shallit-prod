@@ -1,0 +1,59 @@
+---
+description: Maintenance Domain Foundation - shared Array/Machine/Component hierarchy that all maintenance-related modules must reuse instead of duplicating
+alwaysApply: true
+---
+
+# Maintenance Domain Foundation
+
+This sprint introduced the **Maintenance Hierarchy** as the core domain model for the
+maintenance system, not a feature specific to Maintenance Log V2. It is a shared
+foundation:
+
+```
+Array
+  ↓
+Machine
+  ↓
+Component
+```
+
+Currently used by: Morning Round V2, Maintenance Log (V2), Maintenance Reports.
+
+Future modules that will/should reuse it: Treatments, Annual Maintenance Plan,
+BI/Analytics, KPI dashboards, Spare Parts, Maintenance History, and any other
+maintenance-related feature.
+
+## Rule: Do NOT duplicate this hierarchy
+
+When implementing any new maintenance-related feature, reuse the existing
+infrastructure instead of creating parallel tables, services, or lookup logic:
+
+- **Arrays / hierarchy traversal** — backend: `MaintTrack.Application/Hierarchy/`
+  (`IHierarchyService`, `HierarchyDto`, `HierarchyDefaults`),
+  `MaintTrack.Infrastructure/Hierarchy/HierarchyService.cs`,
+  `MaintTrack.Api/Endpoints/HierarchyEndpoints.cs`.
+  Frontend: `frontend/src/services/hierarchyService.ts`.
+- **Machine Components / mappings** — backend: `MaintTrack.Domain/MachineComponents/`
+  (`MachineComponent`, `MachineComponentMapping`),
+  `MaintTrack.Application/MachineComponents/` (`IMachineComponentService`, `MachineComponentDto`),
+  `MaintTrack.Infrastructure/MachineComponents/MachineComponentService.cs`.
+  Frontend: `frontend/src/services/machineComponentService.ts`.
+- **Translation keys** for array/machine/component labels — reuse existing i18n keys
+  in `frontend/src/i18n/translations.ts` rather than adding new ones for the same concepts.
+- **Filtering logic** for Array → Machine → Component selection — reuse the patterns
+  already implemented in `ReportsListScreen.tsx` / `MaintenanceLogV2Screen.tsx`
+  rather than reimplementing selection/cascading logic per screen.
+
+## Selection flow
+
+- Selecting a machine → always go through **Array → Machine** using the hierarchy
+  service, not a standalone machine lookup.
+- Selecting a machine part → always go through **Machine → Component** using
+  `MachineComponentService`/`machineComponentService.ts`, not a new/custom lookup table.
+
+## When extending
+
+Prefer extending `IHierarchyService`, `IMachineComponentService`, and their DTOs over
+introducing new endpoints or tables that model the same Array/Machine/Component
+relationships. If a new maintenance module needs data this hierarchy doesn't yet
+expose, extend the existing service/DTO rather than building a parallel one.

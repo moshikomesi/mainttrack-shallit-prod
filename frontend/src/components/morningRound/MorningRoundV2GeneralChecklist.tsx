@@ -15,6 +15,9 @@ type Props = {
   onSelectFail?: (itemId: string) => void;
   onSelectPass?: (itemId: string) => void;
   onNotesChange?: (itemId: string, notes: string) => void;
+  // Translation key for the section heading. Defaults to the general
+  // checklist title so existing callers are unaffected.
+  titleKey?: string;
 };
 
 export function MorningRoundV2GeneralChecklist({
@@ -24,12 +27,13 @@ export function MorningRoundV2GeneralChecklist({
   onSelectFail,
   onSelectPass,
   onNotesChange,
+  titleKey = 'morningV2.generalChecklist',
 }: Props) {
   return (
     <section className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
       <div className="px-4 py-3 bg-neutral-100 border-b border-neutral-200">
         <h2 className="text-sm font-semibold text-neutral-900">
-          {t('morningV2.generalChecklist')}
+          {t(titleKey)}
         </h2>
       </div>
 

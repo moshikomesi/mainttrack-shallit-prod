@@ -11,6 +11,9 @@ import {
 } from '../services/morningRoundV2Service';
 import { filterVisibleMorningRoundV2Arrays } from '../morningRoundV2Config';
 import { buildInitialGeneralChecklistState, saveMorningRoundV2GeneralChecklist } from '../morningRoundV2GeneralChecklist';
+import { buildInitialConveyorChecklistState, saveMorningRoundV2ConveyorChecklist } from '../morningRoundV2ConveyorChecklist';
+import { groupMorningRoundV2Arrays, MORNING_ROUND_V2_WASHING_KEY } from '../morningRoundV2Grouping';
+import type { MorningRoundV2HierarchyArray } from './morningRound/MorningRoundV2HierarchyView';
 import type {
   MorningRoundV2Array,
   MorningRoundV2MachineState,
@@ -38,28 +41,44 @@ export function MorningRoundV2Screen({ onSubmit }: MorningRoundV2ScreenProps) {
   const [machineState, setMachineState] = useState<Record<string, MorningRoundV2MachineState>>({});
   const [expandedArrays, setExpandedArrays] = useState<Record<string, boolean>>({});
   const [generalChecklist, setGeneralChecklist] = useState(buildInitialGeneralChecklistState);
+  const [conveyorChecklist, setConveyorChecklist] = useState(buildInitialConveyorChecklistState);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const visibleArrays = useMemo(() => filterVisibleMorningRoundV2Arrays(arrays), [arrays]);
 
-  const hierarchyArrays = useMemo(
-    () =>
-      visibleArrays.map((array) => ({
-        arrayId: array.arrayId,
-        nameKey: array.nameKey,
-        machines: array.machines.map((machine) => {
-          const state = machineState[machine.id];
-          return {
-            id: machine.id,
-            nameKey: machine.nameKey,
-            status: state?.status ?? null,
-            notes: state?.notes ?? '',
-          };
-        }),
-      })),
-    [visibleArrays, machineState]
+  const hierarchyArrays = useMemo(() => {
+    const attachState = (array: MorningRoundV2Array): MorningRoundV2HierarchyArray => ({
+      arrayId: array.arrayId,
+      nameKey: array.nameKey,
+      machines: array.machines.map((machine) => {
+        const state = machineState[machine.id];
+        return {
+          id: machine.id,
+          nameKey: machine.nameKey,
+          status: state?.status ?? null,
+          notes: state?.notes ?? '',
+        };
+      }),
+    });
+
+    return groupMorningRoundV2Arrays(visibleArrays).map((array) => ({
+      ...attachState(array),
+      children: array.children?.map(attachState),
+    }));
+  }, [visibleArrays, machineState]);
+
+  // Split so the standalone "Conveyor Inspection" section can be rendered
+  // between the Washing Array and everything that follows it (Packing
+  // House, Cooling Array, etc.), without being part of any array itself.
+  const washingHierarchyArrays = useMemo(
+    () => hierarchyArrays.filter((array) => array.nameKey === MORNING_ROUND_V2_WASHING_KEY),
+    [hierarchyArrays]
+  );
+  const remainingHierarchyArrays = useMemo(
+    () => hierarchyArrays.filter((array) => array.nameKey !== MORNING_ROUND_V2_WASHING_KEY),
+    [hierarchyArrays]
   );
 
   useEffect(() => {
@@ -77,6 +96,7 @@ export function MorningRoundV2Screen({ onSubmit }: MorningRoundV2ScreenProps) {
         setMachineState(buildInitialState(visible));
         setExpandedArrays({});
         setGeneralChecklist(buildInitialGeneralChecklistState());
+        setConveyorChecklist(buildInitialConveyorChecklistState());
       } catch (err) {
         console.error(err);
         if (!cancelled) {
@@ -136,6 +156,18 @@ export function MorningRoundV2Screen({ onSubmit }: MorningRoundV2ScreenProps) {
     );
   };
 
+  const setConveyorStatus = (itemId: string, status: 'ok' | 'fail') => {
+    setConveyorChecklist((prev) =>
+      prev.map((item) => (item.id === itemId ? { ...item, status } : item))
+    );
+  };
+
+  const setConveyorNotes = (itemId: string, notes: string) => {
+    setConveyorChecklist((prev) =>
+      prev.map((item) => (item.id === itemId ? { ...item, notes } : item))
+    );
+  };
+
   const handleSubmit = async () => {
     if (isLoading || totalMachines === 0) {
       toast.error(t('morningV2.noMachines'));
@@ -150,7 +182,8 @@ export function MorningRoundV2Screen({ onSubmit }: MorningRoundV2ScreenProps) {
     );
     const incomplete = entries.filter((item) => item.status === null);
     const incompleteGeneral = generalChecklist.filter((item) => item.status === null);
-    if (incomplete.length > 0 || incompleteGeneral.length > 0) {
+    const incompleteConveyor = conveyorChecklist.filter((item) => item.status === null);
+    if (incomplete.length > 0 || incompleteGeneral.length > 0 || incompleteConveyor.length > 0) {
       toast.error(t('morningV2.validationAllStatusesRequired'));
       return;
     }
@@ -166,6 +199,7 @@ export function MorningRoundV2Screen({ onSubmit }: MorningRoundV2ScreenProps) {
         })),
       });
       saveMorningRoundV2GeneralChecklist(result.id, generalChecklist);
+      saveMorningRoundV2ConveyorChecklist(result.id, conveyorChecklist);
       toast.success(t('messages.reportSaved'));
       onSubmit();
     } catch (err) {
@@ -200,7 +234,26 @@ export function MorningRoundV2Screen({ onSubmit }: MorningRoundV2ScreenProps) {
         {!isLoading && !loadError && (
           <>
             <MorningRoundV2HierarchyView
-              arrays={hierarchyArrays}
+              arrays={washingHierarchyArrays}
+              expandedArrays={expandedArrays}
+              onToggleArray={toggleArray}
+              t={t}
+              onSelectFail={(machineId) => setStatus(machineId, 'fail')}
+              onSelectPass={(machineId) => setStatus(machineId, 'ok')}
+              onNotesChange={setNotes}
+            />
+
+            <MorningRoundV2GeneralChecklist
+              items={conveyorChecklist}
+              t={t}
+              titleKey="morningV2.conveyorInspection"
+              onSelectFail={(itemId) => setConveyorStatus(itemId, 'fail')}
+              onSelectPass={(itemId) => setConveyorStatus(itemId, 'ok')}
+              onNotesChange={setConveyorNotes}
+            />
+
+            <MorningRoundV2HierarchyView
+              arrays={remainingHierarchyArrays}
               expandedArrays={expandedArrays}
               onToggleArray={toggleArray}
               t={t}

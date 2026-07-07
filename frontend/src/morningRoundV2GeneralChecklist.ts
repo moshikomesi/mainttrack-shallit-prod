@@ -4,9 +4,15 @@ export type MorningRoundV2GeneralChecklistItemConfig = {
 };
 
 export const MORNING_ROUND_V2_GENERAL_CHECKLIST_ITEMS: MorningRoundV2GeneralChecklistItemConfig[] = [
-  { id: 'general-check-32', translationKey: 'check.32' },
   { id: 'general-check-34', translationKey: 'check.34' },
   { id: 'general-check-35', translationKey: 'check.35' },
+];
+
+// Removed from the active Morning Round V2 UI checklist. Kept here only so
+// previously submitted reports that recorded data for these items keep
+// displaying exactly as submitted (see loadMorningRoundV2GeneralChecklist).
+const LEGACY_GENERAL_CHECKLIST_ITEMS: MorningRoundV2GeneralChecklistItemConfig[] = [
+  { id: 'general-check-32', translationKey: 'check.32' },
   { id: 'general-check-36', translationKey: 'check.36' },
 ];
 
@@ -67,7 +73,7 @@ export function loadMorningRoundV2GeneralChecklist(
     }
 
     const stored = JSON.parse(raw) as StoredGeneralChecklistItem[];
-    return defaults.map((item) => {
+    const mappedDefaults = defaults.map((item) => {
       const match = stored.find((entry) => entry.id === item.id);
       if (!match) {
         return item;
@@ -79,6 +85,27 @@ export function loadMorningRoundV2GeneralChecklist(
         notes: match.notes ?? '',
       };
     });
+
+    // Legacy items are only re-attached when this specific report actually
+    // recorded data for them, so newly submitted reports (which never show
+    // these items) remain unaffected.
+    const legacyWithData = LEGACY_GENERAL_CHECKLIST_ITEMS.reduce<MorningRoundV2GeneralChecklistItemState[]>(
+      (acc, item) => {
+        const match = stored.find((entry) => entry.id === item.id);
+        if (match) {
+          acc.push({
+            id: item.id,
+            translationKey: item.translationKey,
+            status: match.status,
+            notes: match.notes ?? '',
+          });
+        }
+        return acc;
+      },
+      []
+    );
+
+    return [...mappedDefaults, ...legacyWithData];
   } catch {
     return defaults;
   }

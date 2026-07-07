@@ -287,6 +287,11 @@ public class MaintTrackDbContext : DbContext
             .HasColumnName("is_active")
             .IsRequired();
 
+        entity.Property(x => x.SortOrder)
+            .HasColumnName("sort_order")
+            .HasDefaultValue(0)
+            .IsRequired();
+
         entity.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();
