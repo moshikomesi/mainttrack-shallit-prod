@@ -1,0 +1,52 @@
+# systemd unit for MaintTrack API — TEST environment
+#
+# IMPORTANT — READ BEFORE INSTALLING
+# ------------------------------------------------------------------------------
+# This file was reconstructed from repository conventions (deploy paths, env var
+# names in config/secrets.example.env, dotnet publish output) because the actual
+# production `mainttrack.service` unit lives only on the server and was not
+# available to generate this from directly (no server connection was made,
+# per instructions).
+#
+# Before installing, diff this against the real `mainttrack.service`
+# (e.g. `systemctl cat mainttrack`) and adjust User/Group/WorkingDirectory/
+# ExecStart if they differ from what's assumed below. In particular verify:
+#   - the `dotnet` binary path (`which dotnet`)
+#   - the service user/group MaintTrack actually runs as
+#   - whether Production uses an EnvironmentFile and if so, its exact path
+#
+# This unit is otherwise fully isolated from Production:
+#   - Different WorkingDirectory (/opt/mainttrack-test/api vs /opt/mainttrack/api)
+#   - Different port (5063 vs 5062, via ASPNETCORE_URLS)
+#   - Different EnvironmentFile (/etc/mainttrack-test/secrets.env)
+#   - Different unit name (mainttrack-test.service vs mainttrack.service)
+# Installing/starting this unit does NOT touch or restart `mainttrack.service`.
+# ------------------------------------------------------------------------------
+
+[Unit]
+Description=MaintTrack API (TEST environment)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/mainttrack-test/api
+ExecStart=/usr/bin/dotnet /opt/mainttrack-test/api/MaintTrack.Api.dll
+Restart=on-failure
+RestartSec=5
+
+# Runtime environment for TEST — isolated from Production's secrets file.
+Environment=ASPNETCORE_ENVIRONMENT=Test
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5063
+EnvironmentFile=/etc/mainttrack-test/secrets.env
+
+# Adjust to match whatever user Production actually runs as.
+User=azureuser
+Group=azureuser
+
+# Hardening (safe defaults; relax if Production's unit doesn't use these and
+# something breaks — e.g. Storage:BasePath under /mnt/app-test must be writable).
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

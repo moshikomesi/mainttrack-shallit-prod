@@ -59,6 +59,7 @@
             "dev": "vite",
             "build": "vite build",
             "build:staging": "vite build --mode staging",
+            "build:test": "vite build --mode test",
             "preview": "vite preview"
       }
 }

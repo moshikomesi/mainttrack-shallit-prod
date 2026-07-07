@@ -26,13 +26,53 @@ Other routes: `/api/morning-round`, `/api/maintenance`, `/api/maintenance-tasks`
 
 ## Local development
 
+### PostgreSQL (local)
+
+This project expects **one** Postgres on port **5432**. If both Homebrew and Docker Postgres are running, `localhost:5432` may hit the wrong instance (empty/partial `mainttrack_dev` on brew vs full data in Docker).
+
+**Use Docker Postgres** (`mainttrack-postgres` container):
+
+```bash
+# Stop brew Postgres so Docker owns port 5432
+brew services stop postgresql@14
+
+# Ensure container is running
+docker start mainttrack-postgres
+
+# Verify you hit Docker (server addr is Docker network, not 127.0.0.1)
+PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d mainttrack_dev \
+  -c "SELECT inet_server_addr(), current_database();"
+```
+
+Connection string (already in `appsettings.Development.json`):
+
+`Host=localhost;Port=5432;Database=mainttrack_dev;Username=postgres;Password=postgres`
+
+After switching DB, **restart the API** so EF opens a fresh connection.
+
+Apply pending migrations:
+
+```bash
+cd backend/MaintTrack.Api
+dotnet ef database update --project ../MaintTrack.Infrastructure/MaintTrack.Infrastructure.csproj
+```
+
+Local dev login: `admin` / `admin` (see `frontend/src/dev/devAuthBootstrap.ts`).
+
+**Arrays → Machines hierarchy (Morning Round v2 dev seed):**
+
+```bash
+./scripts/seed-arrays-hierarchy-dev.sh
+```
+
+Idempotent SQL seed for the Pilot Factory tenant (`11111111-1111-1111-1111-111111111111`). Populates 7 arrays with machines using translation keys only. Safe to re-run. Verify via `GET /api/v2/morning-round` or `/morning-round-v2` in the UI.
+
 ### Backend
 
 ```bash
 cd backend/MaintTrack.Api
 export ASPNETCORE_ENVIRONMENT=Development
-# Set MAINTTRACK_DB_CONNECTION or edit appsettings.Development.json
-dotnet run
+dotnet run --urls http://localhost:5062
 ```
 
 API: http://localhost:5062
