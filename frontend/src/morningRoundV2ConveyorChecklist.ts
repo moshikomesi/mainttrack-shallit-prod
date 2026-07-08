@@ -1,10 +1,11 @@
-// Standalone "Conveyor Inspection" section for Morning Round V2.
-//
-// This is intentionally NOT tied to any array or machine hierarchy — it is a
-// flat checklist, presented as its own section between the Washing Array and
-// Packing House sections. Items reuse the existing conveyor-related entries
-// from the legacy checklist translation set (unchanged, exactly as defined
-// today).
+// Conveyors checklist for Morning Round V2, rendered inside the "מסועים"
+// array accordion using the same pass/fail + notes UI as other lists.
+
+import {
+  MORNING_ROUND_V2_CONVEYORS_ARRAY_ID,
+  MORNING_ROUND_V2_CONVEYORS_KEY,
+} from './morningRoundV2Grouping';
+import type { MorningRoundV2HierarchyArray } from './components/morningRound/MorningRoundV2HierarchyView';
 
 export type MorningRoundV2ConveyorChecklistItemConfig = {
   id: string;
@@ -22,6 +23,10 @@ export type MorningRoundV2ConveyorChecklistItemState = {
   notes: string;
 };
 
+export function isConveyorChecklistItemId(id: string): boolean {
+  return id.startsWith('conveyor-check-');
+}
+
 export function buildInitialConveyorChecklistState(): MorningRoundV2ConveyorChecklistItemState[] {
   return MORNING_ROUND_V2_CONVEYOR_CHECKLIST_ITEMS.map((item) => ({
     id: item.id,
@@ -29,6 +34,21 @@ export function buildInitialConveyorChecklistState(): MorningRoundV2ConveyorChec
     status: null,
     notes: '',
   }));
+}
+
+export function buildConveyorsHierarchyArray(
+  items: MorningRoundV2ConveyorChecklistItemState[]
+): MorningRoundV2HierarchyArray {
+  return {
+    arrayId: MORNING_ROUND_V2_CONVEYORS_ARRAY_ID,
+    nameKey: MORNING_ROUND_V2_CONVEYORS_KEY,
+    machines: items.map((item) => ({
+      id: item.id,
+      nameKey: item.translationKey,
+      status: item.status,
+      notes: item.notes,
+    })),
+  };
 }
 
 const CONVEYOR_CHECKLIST_STORAGE_PREFIX = 'mainttrack:mr-v2-conveyor:';

@@ -10,6 +10,9 @@ export const MORNING_ROUND_V2_WASHING_KEY = 'array.washing_system';
 // Virtual group label reused from the existing "Packing House" translation.
 export const MORNING_ROUND_V2_PACKING_GROUP_KEY = 'array.packing_house';
 
+export const MORNING_ROUND_V2_CONVEYORS_KEY = 'array.conveyors';
+export const MORNING_ROUND_V2_CONVEYORS_ARRAY_ID = 'group:conveyors';
+
 // New virtual group label for the merged Cooling Array parent.
 export const MORNING_ROUND_V2_COOLING_GROUP_KEY = 'array.cooling_group';
 
@@ -88,4 +91,26 @@ export function groupMorningRoundV2Arrays<TMachine>(
   }
 
   return [...result, ...rest];
+}
+
+/** Inserts the presentation-only Conveyors checklist array before Cooling. */
+export function insertMorningRoundV2ConveyorsArray<TMachine>(
+  arrays: MorningRoundV2GroupedArray<TMachine>[],
+  conveyors: MorningRoundV2GroupedArray<TMachine>
+): MorningRoundV2GroupedArray<TMachine>[] {
+  if (arrays.some((array) => array.arrayId === MORNING_ROUND_V2_CONVEYORS_ARRAY_ID)) {
+    return arrays;
+  }
+
+  const coolingIndex = arrays.findIndex(
+    (array) =>
+      array.nameKey === MORNING_ROUND_V2_COOLING_GROUP_KEY ||
+      COOLING_MEMBER_KEYS.has(array.nameKey)
+  );
+
+  if (coolingIndex !== -1) {
+    return [...arrays.slice(0, coolingIndex), conveyors, ...arrays.slice(coolingIndex)];
+  }
+
+  return [...arrays, conveyors];
 }

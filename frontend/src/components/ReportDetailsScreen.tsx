@@ -16,6 +16,12 @@ import { MorningRoundV2HierarchyView } from './morningRound/MorningRoundV2Hierar
 import { ReportLocationHeader } from './reports/ReportLocationHeader';
 import { filterVisibleMorningRoundV2Arrays } from '../morningRoundV2Config';
 import { buildInitialGeneralChecklistState, loadMorningRoundV2GeneralChecklist } from '../morningRoundV2GeneralChecklist';
+import { groupMorningRoundV2Arrays, insertMorningRoundV2ConveyorsArray } from '../morningRoundV2Grouping';
+import {
+  buildConveyorsHierarchyArray,
+  buildInitialConveyorChecklistState,
+  loadMorningRoundV2ConveyorChecklist,
+} from '../morningRoundV2ConveyorChecklist';
 import {
   arrayLocationLabel,
   checklistItemLocationLabel,
@@ -162,20 +168,44 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     [morningV2Report]
   );
 
-  const morningV2HierarchyArrays = useMemo(
+  const morningV2ConveyorChecklist = useMemo(
     () =>
-      visibleMorningV2Arrays.map((array) => ({
-        arrayId: array.arrayId,
-        nameKey: array.nameKey,
-        machines: array.machines.map((machine) => ({
-          id: machine.machineId,
-          nameKey: machine.nameKey,
-          status: normalizeMorningV2Status(machine.status),
-          notes: machine.notes ?? '',
-        })),
-      })),
-    [visibleMorningV2Arrays]
+      morningV2Report
+        ? loadMorningRoundV2ConveyorChecklist(morningV2Report.reportId)
+        : buildInitialConveyorChecklistState(),
+    [morningV2Report]
   );
+
+  const morningV2HierarchyArrays = useMemo(() => {
+    if (!morningV2Report) {
+      return [];
+    }
+
+    const baseArrays = visibleMorningV2Arrays.map((array) => ({
+      arrayId: array.arrayId,
+      nameKey: array.nameKey,
+      machines: array.machines.map((machine) => ({
+        id: machine.machineId,
+        nameKey: machine.nameKey,
+        status: normalizeMorningV2Status(machine.status),
+        notes: machine.notes ?? '',
+      })),
+    }));
+
+    const grouped = groupMorningRoundV2Arrays(baseArrays).map((array) => ({
+      arrayId: array.arrayId,
+      nameKey: array.nameKey,
+      machines: array.machines,
+      children: array.children?.map((child) => ({
+        arrayId: child.arrayId,
+        nameKey: child.nameKey,
+        machines: child.machines,
+      })),
+    }));
+
+    const conveyors = buildConveyorsHierarchyArray(morningV2ConveyorChecklist);
+    return insertMorningRoundV2ConveyorsArray(grouped, conveyors);
+  }, [morningV2Report, visibleMorningV2Arrays, morningV2ConveyorChecklist]);
 
   const toggleMorningV2Array = (key: string) => {
     setExpandedArrays((prev) => ({ ...prev, [key]: !prev[key] }));

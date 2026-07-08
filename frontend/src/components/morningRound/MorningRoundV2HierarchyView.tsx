@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { MorningRoundV2MachineStatus } from '../MorningRoundV2MachineStatus';
 import type { MorningRoundV2MachineStatusValue } from '../MorningRoundV2MachineStatus';
+import { MORNING_ROUND_V2_CONVEYORS_ARRAY_ID } from '../../morningRoundV2Grouping';
 
 export type MorningRoundV2HierarchyMachine = {
   id: string;
@@ -56,6 +57,7 @@ export function MorningRoundV2HierarchyView({
       {arrays.map((array) => {
         const arrayKey = array.arrayId ?? 'unassigned';
         const isExpanded = expandedArrays[arrayKey] ?? false;
+        const isConveyorsArray = array.arrayId === MORNING_ROUND_V2_CONVEYORS_ARRAY_ID;
 
         return (
           <section
@@ -113,9 +115,11 @@ export function MorningRoundV2HierarchyView({
                     className="p-4 space-y-3"
                     onClick={() => onMachineFocus?.(machine.id, machine.nameKey)}
                   >
-                    <p className="text-sm font-medium text-neutral-900">
-                      {t(machine.nameKey)}
-                    </p>
+                    {!isConveyorsArray && (
+                      <p className="text-sm font-medium text-neutral-900">
+                        {t(machine.nameKey)}
+                      </p>
+                    )}
 
                     <MorningRoundV2MachineStatus
                       status={machine.status}

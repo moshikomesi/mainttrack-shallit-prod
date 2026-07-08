@@ -5,7 +5,6 @@ export type MorningRoundV2GeneralChecklistItemConfig = {
 
 export const MORNING_ROUND_V2_GENERAL_CHECKLIST_ITEMS: MorningRoundV2GeneralChecklistItemConfig[] = [
   { id: 'general-check-34', translationKey: 'check.34' },
-  { id: 'general-check-35', translationKey: 'check.35' },
 ];
 
 // Removed from the active Morning Round V2 UI checklist. Kept here only so
@@ -13,6 +12,7 @@ export const MORNING_ROUND_V2_GENERAL_CHECKLIST_ITEMS: MorningRoundV2GeneralChec
 // displaying exactly as submitted (see loadMorningRoundV2GeneralChecklist).
 const LEGACY_GENERAL_CHECKLIST_ITEMS: MorningRoundV2GeneralChecklistItemConfig[] = [
   { id: 'general-check-32', translationKey: 'check.32' },
+  { id: 'general-check-35', translationKey: 'check.35' },
   { id: 'general-check-36', translationKey: 'check.36' },
 ];
 
