@@ -15,6 +15,20 @@
 --   See HIERARCHY_MAP_ALIGNMENT_REPORT.md at the repo root for the full
 --   human-readable summary of what changed and why.
 --
+-- PREREQUISITES (must be run BEFORE this script, in order):
+--   1. scripts/production-manual-schema-morning-round-v2.sql
+--        (arrays table, machines.array_id column)
+--   2. scripts/production-machine-components-schema.sql
+--        (machine_components / machine_component_mappings tables — this
+--         script inserts into both and fails with "relation does not exist"
+--         without it)
+--   3. scripts/production-seed-arrays-machines.sql
+--        (arrays + machines must exist for the name-based JOINs below to
+--         match anything — see scripts/README.md "Arrays production seed")
+--   4. scripts/machine_components_seed.sql
+--        (base machine_components catalog — this script only ADDS to it,
+--         e.g. RUBBER_STARS/BEARINGS/OVERHAUL, it does not recreate it)
+--
 -- Safe properties:
 --   • Idempotent — every INSERT uses NOT EXISTS guards, every UPDATE is
 --     scoped by name/code so re-running has no additional effect.

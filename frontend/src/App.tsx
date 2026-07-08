@@ -19,6 +19,7 @@ import { ReportsListScreen } from './components/ReportsListScreen';
 import { ReportDetailsScreen } from './components/ReportDetailsScreen';
 import type { ReportType, ReportsListReturnContext } from './types/reports';
 import { SettingsScreen } from './components/SettingsScreen';
+import { useAutoUpdate } from './hooks/useAutoUpdate';
 
 const screenIdToPath: Record<string, string> = {
   morningRound: '/morning-round',
@@ -318,6 +319,8 @@ function ReportDetailsRoute({
 }
 
 export default function App() {
+  useAutoUpdate();
+
   return (
     <LanguageProvider
       children={

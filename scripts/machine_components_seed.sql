@@ -1,6 +1,14 @@
 -- Maintenance Log V2 — machine components catalog + machine mappings
 -- Idempotent. Safe to re-run.
--- Requires: arrays/machines hierarchy already seeded for the tenant.
+--
+-- PREREQUISITES (must be run BEFORE this script, in order):
+--   1. scripts/production-machine-components-schema.sql
+--        (creates the machine_components / machine_component_mappings tables
+--         this script inserts into — this script fails with
+--         "relation does not exist" without it)
+--   2. Arrays/machines hierarchy already seeded for the tenant
+--        (scripts/production-seed-arrays-machines.sql — see scripts/README.md
+--         "Arrays production seed" section for which script is canonical)
 
 BEGIN;
 

@@ -1,12 +1,33 @@
 -- =============================================================================
--- MaintTrack — Production seed: Arrays + Machines hierarchy
+-- MaintTrack — Production seed: Arrays + Machines hierarchy (CANONICAL)
 -- =============================================================================
+-- ★ This is the CANONICAL, current arrays/machines production seed script. ★
+-- It implements the 6-array hierarchy (washing_system, onion_system,
+-- water_cooling_system, rooms, ginoshar, packing_house — plus `conveyors`,
+-- added later by production-hierarchy-map-alignment.sql) that all of this
+-- sprint's hierarchy work (sort_order, machine_component_mappings,
+-- translations) depends on.
+--
+-- Do not use scripts/obsolete/arrays_seed.sql, machines_seed.sql,
+-- machines_mapping.sql, production-seed-shallit-arrays-insert.sql, or
+-- production-seed-shallit-array-mapping.sql — they are superseded/obsolete.
+-- See scripts/README.md ("Arrays production seed — which script to use") for
+-- the full explanation.
+--
 -- Purpose:
 --   Insert work-group arrays and link machines for Morning Round v2 / hierarchy.
 --
 -- BEFORE RUNNING:
 --   1. Apply schema: scripts/production-manual-schema-morning-round-v2.sql
---   2. Replace TENANT_ID below with your production tenant UUID if different
+--   2. You MUST pass the target tenant UUID as a psql variable — this script
+--      does not default it (a hardcoded default previously in this file
+--      silently overrode any -v tenant_id=... passed on the command line;
+--      fixed 2026-07-08). For the Shallit production tenant:
+--        psql ... -v tenant_id='beed1fc4-ffbb-4ea1-b7c8-d84584506842' \
+--             -f scripts/production-seed-arrays-machines.sql
+--      Prefer scripts/run-production-seed-arrays-machines.sh, which sets
+--      this for you (docker mode defaults to a placeholder tenant; remote
+--      mode defaults PROD_TENANT_ID to the Shallit tenant above).
 --   3. Ensure the tenant row exists in `tenants`
 --
 -- Safety:
@@ -15,14 +36,20 @@
 --   • Machine inserts skipped when name already exists for tenant
 --   • UPDATE only sets array_id (no deletes, no deactivations)
 --   • Does NOT modify v1 tables (morning_round_reports, etc.)
+--   • Fails fast (via \if below) if tenant_id was not supplied, instead of
+--     silently seeding a placeholder tenant
 --
 -- Usage:
---   psql -h HOST -U USER -d DATABASE -f scripts/production-seed-arrays-machines.sql
+--   psql -h HOST -U USER -d DATABASE -v tenant_id='<tenant-uuid>' \
+--        -f scripts/production-seed-arrays-machines.sql
 -- =============================================================================
 
--- >>> REPLACE THIS TENANT UUID FOR YOUR PRODUCTION TENANT <<<
--- Default placeholder (consistent across all rows in this script):
-\set tenant_id '00000000-0000-0000-0000-000000000001'
+\if :{?tenant_id}
+\else
+  \echo 'ERROR: tenant_id psql variable not set.'
+  \echo 'Run with: psql ... -v tenant_id=<tenant-uuid> -f production-seed-arrays-machines.sql'
+  \quit
+\endif
 
 BEGIN;
 

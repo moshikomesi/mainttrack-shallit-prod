@@ -1,3 +1,13 @@
+-- =============================================================================
+-- ⚠️  SUPERSEDED — DO NOT USE FOR PRODUCTION ⚠️
+-- =============================================================================
+-- Superseded on 2026-07-08 by scripts/production-seed-arrays-machines.sql
+-- (SECTION 3), which sets machine.array_id by translation-key `name` pattern
+-- instead of hardcoded real production machine UUIDs captured at a single
+-- point in time. Kept here for historical reference only.
+-- See scripts/README.md.
+-- =============================================================================
+
 BEGIN;
 
 -- array.washing_system → a2000001-0000-0000-0000-000000000001

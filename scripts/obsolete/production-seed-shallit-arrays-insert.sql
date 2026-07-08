@@ -1,4 +1,22 @@
 -- =============================================================================
+-- ⚠️  OBSOLETE — DO NOT USE FOR PRODUCTION ⚠️
+-- =============================================================================
+-- Superseded on 2026-07-08. This script creates a 4-array coarse hierarchy
+-- (`array.production.washing`, `sorting_processing`, `cooling_fluid`,
+-- `wear_maintenance`) that is INCOMPATIBLE with every hierarchy change made
+-- this sprint (machine sort_order, machine_component_mappings, the full
+-- Arrays→Machines→Components alignment in
+-- scripts/production-hierarchy-map-alignment.sql — all of that work assumes
+-- the 6-array model: array.washing_system / onion_system /
+-- water_cooling_system / rooms / ginoshar / packing_house [+ conveyors]).
+--
+-- Use instead: scripts/production-seed-arrays-machines.sql
+--
+-- Kept here for historical reference only. See scripts/README.md
+-- ("Arrays production seed — which script to use") for the full explanation.
+-- =============================================================================
+
+-- =============================================================================
 -- MaintTrack — Production seed: create arrays for Shallit tenant (run BEFORE mapping)
 -- =============================================================================
 -- Tenant: beed1fc4-ffbb-4ea1-b7c8-d84584506842

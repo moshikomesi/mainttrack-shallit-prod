@@ -1,3 +1,14 @@
+-- =============================================================================
+-- ⚠️  SUPERSEDED — DO NOT USE FOR PRODUCTION ⚠️
+-- =============================================================================
+-- Superseded on 2026-07-08 by scripts/production-seed-arrays-machines.sql,
+-- which produces the identical 6-array end state (same array UUIDs, same
+-- name_keys) in a single parameterized, idempotent, name-matching script that
+-- doesn't require hardcoding real production machine UUIDs. Kept here (with
+-- scripts/obsolete/machines_seed.sql and scripts/obsolete/machines_mapping.sql)
+-- for historical reference only. See scripts/README.md.
+-- =============================================================================
+
 INSERT INTO arrays (id, tenant_id, name_key, sort_order, is_active, is_morning_round_enabled, created_at)
 VALUES
   ('a2000001-0000-0000-0000-000000000001', 'beed1fc4-ffbb-4ea1-b7c8-d84584506842', 'array.washing_system',       1, true, true, NOW()),

@@ -1,4 +1,21 @@
 -- =============================================================================
+-- ⚠️  OBSOLETE — DO NOT USE FOR PRODUCTION ⚠️
+-- =============================================================================
+-- Superseded on 2026-07-08. Maps a small subset of machines (11 of ~70) into
+-- the obsolete 4-array coarse hierarchy from
+-- scripts/obsolete/production-seed-shallit-arrays-insert.sql. Several machine
+-- names referenced here (`machine.waterPump`, `machine.wearBroken3`) do not
+-- exist in the current machine catalog/translations, confirming this
+-- reflects a stale, earlier snapshot of the hierarchy — not the current
+-- 6-array model that all of this sprint's work depends on.
+--
+-- Use instead: scripts/production-seed-arrays-machines.sql
+--
+-- Kept here for historical reference only. See scripts/README.md
+-- ("Arrays production seed — which script to use") for the full explanation.
+-- =============================================================================
+
+-- =============================================================================
 -- MaintTrack — Production seed: map REAL machines → arrays (Shallit tenant)
 -- =============================================================================
 -- Tenant: beed1fc4-ffbb-4ea1-b7c8-d84584506842

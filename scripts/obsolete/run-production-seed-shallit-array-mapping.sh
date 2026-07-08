@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Production seed: map existing Shallit machines into Morning Round v2 arrays.
+# ⚠️  OBSOLETE — DO NOT USE FOR PRODUCTION ⚠️
+# Runs the obsolete 4-array mapping (scripts/obsolete/production-seed-shallit-array-mapping.sql).
+# Use scripts/run-production-seed-arrays-machines.sh instead. See scripts/README.md.
 set -euo pipefail
 
 CONTAINER="${MAINTTRACK_PG_CONTAINER:-mainttrack-postgres}"

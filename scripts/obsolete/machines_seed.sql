@@ -1,3 +1,13 @@
+-- =============================================================================
+-- ⚠️  SUPERSEDED — DO NOT USE FOR PRODUCTION ⚠️
+-- =============================================================================
+-- Superseded on 2026-07-08 by scripts/production-seed-arrays-machines.sql
+-- (SECTION 2), which inserts the same missing machines using a name-based
+-- NOT EXISTS guard instead of assuming a specific point-in-time snapshot of
+-- production machine UUIDs. Kept here for historical reference only.
+-- See scripts/README.md.
+-- =============================================================================
+
 BEGIN;
 
 -- Insert machines missing from production (same catalog as local dev)
