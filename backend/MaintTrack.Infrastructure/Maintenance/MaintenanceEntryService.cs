@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,32 +10,46 @@ using MaintTrack.Domain.Maintenance;
 using MaintTrack.Domain.Users;
 using MaintTrack.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace MaintTrack.Infrastructure.Maintenance;
 
 public sealed class MaintenanceEntryService : IMaintenanceEntryService
 {
+    private const int MaximumAdditionalImages = 2;
+
     private readonly MaintTrackDbContext _dbContext;
     private readonly ITenantContext _tenantContext;
     private readonly ICurrentUserContext _currentUserContext;
     private readonly IFileStorageService _fileStorageService;
+    private readonly ILogger<MaintenanceEntryService> _logger;
 
     public MaintenanceEntryService(
         MaintTrackDbContext dbContext,
         ITenantContext tenantContext,
         ICurrentUserContext currentUserContext,
-        IFileStorageService fileStorageService)
+        IFileStorageService fileStorageService,
+        ILogger<MaintenanceEntryService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
         _currentUserContext = currentUserContext ?? throw new ArgumentNullException(nameof(currentUserContext));
         _fileStorageService = fileStorageService ?? throw new ArgumentNullException(nameof(fileStorageService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async Task<Guid> CreateAsync(CreateMaintenanceEntryRequest request, CancellationToken ct)
     {
         if (_tenantContext.TenantId is null)
             throw new InvalidOperationException("Tenant not resolved.");
+
+        var additionalImageUrls = request.AdditionalImageUrls ?? Array.Empty<string>();
+
+        if (additionalImageUrls.Count > MaximumAdditionalImages)
+            throw new InvalidOperationException("A maximum of two additional images is allowed.");
+
+        if (additionalImageUrls.Count > 0 && string.IsNullOrWhiteSpace(request.ImageUrl))
+            throw new InvalidOperationException("A primary image is required when additional images are provided.");
 
         var tenantId = _tenantContext.TenantId.Value;
         var userId = _currentUserContext.UserId;
@@ -73,6 +86,22 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
             CreatedAt = DateTime.UtcNow
         };
 
+        for (var index = 0; index < additionalImageUrls.Count; index++)
+        {
+            var imageUrl = additionalImageUrls[index];
+            if (string.IsNullOrWhiteSpace(imageUrl))
+                throw new InvalidOperationException("Additional image URLs cannot be empty.");
+
+            entry.AdditionalImages.Add(new MaintenanceEntryImage
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                ImageUrl = imageUrl,
+                SortOrder = index + 1,
+                CreatedAt = entry.CreatedAt
+            });
+        }
+
         await _dbContext.MaintenanceEntries.AddAsync(entry, ct);
 
         await _dbContext.AuditLogs.AddAsync(new AuditLog
@@ -103,6 +132,10 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
             _currentUserContext.RoleId != (int)UserRole.SuperAdmin)
             throw new UnauthorizedAccessException("You are not allowed to update this maintenance entry.");
 
+        if (request.ImageUrl is not null &&
+            !string.Equals(entry.ImageUrl, request.ImageUrl, StringComparison.Ordinal))
+            throw new InvalidOperationException("Images cannot be changed after a maintenance entry is submitted.");
+
         if (request.MaintenanceTypeId == Guid.Empty)
             throw new InvalidOperationException("Maintenance type is required.");
 
@@ -113,7 +146,6 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
 
         entry.MaintenanceTypeId = maintenanceTypeId;
         entry.Description = description;
-        entry.ImageUrl = request.ImageUrl;
         entry.SparePartsUsed = request.SparePartsUsed;
         entry.EmployeeName = request.EmployeeName;
         entry.WorkHours = request.WorkHours;
@@ -139,12 +171,20 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
         if (_tenantContext.TenantId is null)
             throw new InvalidOperationException("Tenant not resolved.");
 
-        var entry = await _dbContext.MaintenanceEntries.FirstOrDefaultAsync(e => e.Id == id, ct);
+        var entry = await _dbContext.MaintenanceEntries
+            .Include(e => e.AdditionalImages)
+            .FirstOrDefaultAsync(e => e.Id == id, ct);
         if (entry is null || _currentUserContext.RoleId != (int)UserRole.SuperAdmin)
             throw new UnauthorizedAccessException("You are not allowed to delete this maintenance entry.");
 
-        if (!string.IsNullOrWhiteSpace(entry.ImageUrl))
-            await _fileStorageService.DeleteAsync(entry.ImageUrl, ct);
+        var imageUrls = entry.AdditionalImages
+            .OrderBy(image => image.SortOrder)
+            .Select(image => image.ImageUrl)
+            .Prepend(entry.ImageUrl)
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
         _dbContext.MaintenanceEntries.Remove(entry);
         await _dbContext.AuditLogs.AddAsync(new AuditLog
@@ -158,6 +198,22 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
             CreatedAt = DateTime.UtcNow
         }, ct);
         await _dbContext.SaveChangesAsync(ct);
+
+        foreach (var imageUrl in imageUrls)
+        {
+            try
+            {
+                await _fileStorageService.DeleteAsync(imageUrl, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Maintenance entry {MaintenanceEntryId} was deleted, but image {ImageUrl} could not be removed from storage.",
+                    id,
+                    imageUrl);
+            }
+        }
     }
 
     public async Task<IReadOnlyList<MaintenanceEntryDto>> GetAsync(GetMaintenanceEntriesRequest request, CancellationToken ct)
@@ -204,7 +260,14 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
                 x.Entry.WorkHours,
                 x.Entry.IsSafeToOperate,
                 x.Entry.CreatedByUserId,
-                x.Entry.CreatedAt))
+                x.Entry.CreatedAt,
+                x.Entry.AdditionalImages
+                    .OrderBy(image => image.SortOrder)
+                    .Select(image => new MaintenanceEntryImageDto(
+                        image.Id,
+                        image.ImageUrl,
+                        image.SortOrder))
+                    .ToList()))
             .ToListAsync(ct);
 
         return list;
@@ -231,7 +294,14 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
                              e.WorkHours,
                              e.IsSafeToOperate,
                              e.CreatedByUserId,
-                             e.CreatedAt))
+                             e.CreatedAt,
+                             e.AdditionalImages
+                                 .OrderBy(image => image.SortOrder)
+                                 .Select(image => new MaintenanceEntryImageDto(
+                                     image.Id,
+                                     image.ImageUrl,
+                                     image.SortOrder))
+                                 .ToList()))
             .FirstOrDefaultAsync(ct);
 
         return dto;
@@ -283,7 +353,7 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
         {
             try
             {
-                var base64 = entry.ImageUrl;
+                var base64 = entry.ImageUrl!;
 
                 var commaIndex = base64.IndexOf(',');
                 var data = base64.Substring(commaIndex + 1);
@@ -313,5 +383,4 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
 
         await _dbContext.SaveChangesAsync(ct);
     }
-
 }

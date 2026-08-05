@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace MaintTrack.Application.Maintenance;
 
@@ -16,5 +17,12 @@ public sealed record MaintenanceEntryDto(
     decimal WorkHours,
     bool IsSafeToOperate,
     Guid CreatedByUserId,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    IReadOnlyList<MaintenanceEntryImageDto> AdditionalImages
+);
+
+public sealed record MaintenanceEntryImageDto(
+    Guid Id,
+    string ImageUrl,
+    int SortOrder
 );

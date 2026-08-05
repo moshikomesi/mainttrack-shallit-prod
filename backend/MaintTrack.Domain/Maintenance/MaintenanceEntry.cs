@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using MaintTrack.Domain.Common;
 
 namespace MaintTrack.Domain.Maintenance;
@@ -17,6 +18,8 @@ public class MaintenanceEntry : TenantEntity
 
     public string? ImageUrl { get; set; }
 
+    public ICollection<MaintenanceEntryImage> AdditionalImages { get; set; } = new List<MaintenanceEntryImage>();
+
     public string? SparePartsUsed { get; set; }
 
     public string EmployeeName { get; set; } = string.Empty;
@@ -27,4 +30,3 @@ public class MaintenanceEntry : TenantEntity
 
     public Guid CreatedByUserId { get; set; }
 }
-

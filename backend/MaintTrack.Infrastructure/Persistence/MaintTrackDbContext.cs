@@ -53,6 +53,8 @@ public class MaintTrackDbContext : DbContext
 
     public DbSet<MaintenanceEntry> MaintenanceEntries => Set<MaintenanceEntry>();
 
+    public DbSet<MaintenanceEntryImage> MaintenanceEntryImages => Set<MaintenanceEntryImage>();
+
     public DbSet<MaintenanceType> MaintenanceTypes => Set<MaintenanceType>();
 
     public DbSet<Treatment> Treatments => Set<Treatment>();
@@ -636,6 +638,54 @@ public class MaintTrackDbContext : DbContext
             .OnDelete(DeleteBehavior.SetNull);
 
         entryEntity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+
+        var imageEntity = modelBuilder.Entity<MaintenanceEntryImage>();
+
+        imageEntity.ToTable(
+            "maintenance_entry_images",
+            table => table.HasCheckConstraint(
+                "ck_maintenance_entry_images_sort_order",
+                "sort_order >= 1 AND sort_order <= 2"));
+
+        imageEntity.HasKey(x => x.Id);
+
+        imageEntity.Property(x => x.Id)
+            .HasColumnName("id");
+
+        imageEntity.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        imageEntity.Property(x => x.MaintenanceEntryId)
+            .HasColumnName("maintenance_entry_id")
+            .IsRequired();
+
+        imageEntity.Property(x => x.ImageUrl)
+            .HasColumnName("image_url")
+            .IsRequired();
+
+        imageEntity.Property(x => x.SortOrder)
+            .HasColumnName("sort_order")
+            .IsRequired();
+
+        imageEntity.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        imageEntity.Property(x => x.UpdatedAt)
+            .HasColumnName("updated_at");
+
+        imageEntity.HasOne(x => x.MaintenanceEntry)
+            .WithMany(x => x.AdditionalImages)
+            .HasForeignKey(x => x.MaintenanceEntryId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        imageEntity.HasIndex(x => new { x.MaintenanceEntryId, x.SortOrder })
+            .IsUnique();
+
+        imageEntity.HasIndex(x => new { x.TenantId, x.MaintenanceEntryId });
+
+        imageEntity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
     private void ConfigureTreatment(ModelBuilder modelBuilder)

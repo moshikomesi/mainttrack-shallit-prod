@@ -42,6 +42,11 @@ export const translations: Record<string, Record<Language, string>> = {
   'validation.requiredAllChecked': { en: 'Please check all items before submitting', he: 'יש לסמן את כל הפריטים לפני שליחת הדוח', th: 'กรุณาติ๊กถูกทุกรายการก่อนส่งรายงาน' },
   'validation.allItemsMustBeChecked': { en: 'All 35 checklist items must be checked', he: 'יש לסמן את כל 35 פריטי הרשימה', th: 'ต้องเลือกทั้ง 35 รายการ' },
   'validation.maintenanceImageTooLarge': {
+    en: 'Image must be 10MB or smaller',
+    he: 'גודל התמונה חייב להיות עד 10MB',
+    th: 'รูปภาพต้องมีขนาดไม่เกิน 10MB',
+  },
+  'validation.maintenanceTaskImageTooLarge': {
     en: 'Image must be 5MB or smaller',
     he: 'גודל התמונה חייב להיות עד 5MB',
     th: 'รูปภาพต้องมีขนาดไม่เกิน 5MB',
@@ -55,6 +60,11 @@ export const translations: Record<string, Record<Language, string>> = {
     en: 'Upload a photo before submitting the report',
     he: 'יש להעלות תמונה לפני שליחת הדוח',
     th: 'กรุณาอัปโหลดรูปภาพก่อนส่งรายงาน',
+  },
+  'validation.maximumAdditionalImages': {
+    en: 'You can add up to 2 optional photos',
+    he: 'ניתן להוסיף עד 2 תמונות אופציונליות',
+    th: 'คุณสามารถเพิ่มรูปภาพเสริมได้สูงสุด 2 รูป',
   },
 
   // Messages
@@ -382,6 +392,33 @@ export const translations: Record<string, Record<Language, string>> = {
   'log.photo': { en: 'Photo', he: 'תמונה', th: 'รูปภาพ' },
   'log.takePicture': { en: 'Take Picture', he: 'צלם תמונה', th: 'ถ่ายภาพ' },
   'log.dropPhoto': { en: 'or drag and drop an image here', he: 'או גרור תמונה לכאן', th: 'หรือลากและวางรูปที่นี่' },
+  'log.additionalPhotos': {
+    en: 'Optional photos',
+    he: 'תמונות אופציונליות',
+    th: 'รูปภาพเสริม',
+  },
+  'log.addOptionalPhotos': {
+    en: 'Add photos',
+    he: 'הוסף תמונות',
+    th: 'เพิ่มรูปภาพ',
+  },
+  'log.additionalPhotosRequirePrimary': {
+    en: 'Add the primary photo first',
+    he: 'יש להוסיף תחילה את התמונה הראשית',
+    th: 'เพิ่มรูปภาพหลักก่อน',
+  },
+  'log.replacePrimaryPhoto': {
+    en: 'Replace primary photo',
+    he: 'החלף תמונה ראשית',
+    th: 'เปลี่ยนรูปภาพหลัก',
+  },
+  'log.removePhoto': { en: 'Remove photo', he: 'הסר תמונה', th: 'ลบรูปภาพ' },
+  'log.imageGallery': { en: 'All photos', he: 'כל התמונות', th: 'รูปภาพทั้งหมด' },
+  'log.openImage': { en: 'Open image', he: 'פתח תמונה', th: 'เปิดรูปภาพ' },
+  'log.imageViewer': { en: 'Image viewer', he: 'מציג תמונות', th: 'โปรแกรมดูรูปภาพ' },
+  'log.closeViewer': { en: 'Close viewer', he: 'סגור מציג', th: 'ปิดโปรแกรมดู' },
+  'log.previousImage': { en: 'Previous image', he: 'תמונה קודמת', th: 'รูปก่อนหน้า' },
+  'log.nextImage': { en: 'Next image', he: 'תמונה הבאה', th: 'รูปถัดไป' },
   'log.uploading': { en: 'Uploading image…', he: 'מעלה תמונה…', th: 'กำลังอัปโหลดรูป…' },
   'log.clearance': { en: 'Clearance', he: ' אישור חזרה בטוחה לעבודה', th: 'ใบอนุญาตอย่างเป็นทางการให้กลับมาปฏิบัติงาน' },
   'log.declaration': { en: 'I confirm the accuracy of this report', he: 'ברישום הביצוע, הנני מצהיר כי בדקתי את האזור בסיום העבודה, כולל בדיקת איסוף כלים וחלקים, קשירת חוטים וניקיון לפי צרכי בטיחות המוצר ואני מאשר חזרה לעבודה.', th: 'ในบันทึกการปฏิบัติงาน ฉันขอประกาศว่าฉันได้ตรวจสอบพื้นที่เมื่อสิ้นสุดการทำงาน รวมถึงการตรวจสอบการรวบรวมเครื่องมือและชิ้นส่วน การผูกสายไฟ และการทำความสะอาดตามความต้องการด้านความปลอดภัยของผลิตภัณฑ์ และฉันอนุมัติให้กลับมาทำงานได้' },

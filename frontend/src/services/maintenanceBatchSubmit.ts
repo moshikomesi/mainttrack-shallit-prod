@@ -84,8 +84,8 @@ export async function submitOneMaintenanceRow(
   const payload = buildPayload(row, resolved.url);
 
   try {
-    if (row.photoFile) {
-      await createMaintenanceWithFile(payload, row.photoFile, signal);
+    if (row.photoFile || (row.additionalPhotoFiles?.length ?? 0) > 0) {
+      await createMaintenanceWithFile(payload, row.photoFile, row.additionalPhotoFiles, signal);
     } else {
       await createMaintenance(payload);
     }
@@ -140,6 +140,12 @@ export function applyMaintenanceSubmitOutcomes(
   results: PerRowSubmitResult[]
 ): MaintenanceLogEntry[] {
   const resultById = new Map(results.map((r) => [r.rowId, r]));
+
+  currentEntries.forEach((entry) => {
+    if (resultById.get(entry.id)?.status !== 'success') return;
+    if (entry.photoPreviewUrl) URL.revokeObjectURL(entry.photoPreviewUrl);
+    entry.additionalPhotoPreviewUrls?.forEach((url) => URL.revokeObjectURL(url));
+  });
 
   return currentEntries
     .filter((entry) => resultById.get(entry.id)?.status !== 'success')

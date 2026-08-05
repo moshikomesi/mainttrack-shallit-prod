@@ -1,3 +1,9 @@
+export interface MaintenanceImageDto {
+  id: string;
+  imageUrl: string;
+  sortOrder: number;
+}
+
 export interface MaintenanceEntryDto {
   id: string;
   machineId: string;
@@ -8,6 +14,7 @@ export interface MaintenanceEntryDto {
   maintenanceTypeCode?: string | null;
   description: string;
   imageUrl?: string | null;
+  additionalImages: MaintenanceImageDto[];
   sparePartsUsed?: string | null;
   employeeName: string;
   workHours: number;
@@ -51,6 +58,10 @@ export type MaintenanceLogEntry = {
   photoFile?: File;
   /** Object URL for preview only; never sent to the API. */
   photoPreviewUrl?: string;
+  /** Optional local images selected after the primary image (maximum two). */
+  additionalPhotoFiles?: File[];
+  /** Object URLs matching additionalPhotoFiles by index. */
+  additionalPhotoPreviewUrls?: string[];
   /**
    * Server URL after a successful upload. Used to skip re-upload when create failed
    * or the user retries; never a blob/data URL.

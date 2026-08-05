@@ -50,7 +50,8 @@ export async function createMaintenance(
 
 export async function createMaintenanceWithFile(
   body: CreateMaintenanceEntryRequest,
-  file: File,
+  file?: File,
+  additionalFiles: File[] = [],
   signal?: AbortSignal
 ): Promise<MaintenanceEntryDto> {
   const formData = new FormData();
@@ -59,7 +60,12 @@ export async function createMaintenanceWithFile(
   formData.append('maintenanceTypeId', body.maintenanceTypeId);
   formData.append('workHours', String(body.workHours));
   formData.append('isSafeToOperate', String(body.isSafeToOperate));
-  formData.append('file', file);
+  if (file) {
+    formData.append('file', file);
+  }
+  additionalFiles.forEach((additionalFile) => {
+    formData.append('additionalFiles', additionalFile);
+  });
 
   if (body.description?.trim()) {
     formData.append('description', body.description.trim());

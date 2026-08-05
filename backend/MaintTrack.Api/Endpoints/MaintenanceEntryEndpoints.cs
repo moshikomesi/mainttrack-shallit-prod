@@ -8,6 +8,19 @@ namespace MaintTrack.Api.Endpoints;
 
 public static class MaintenanceEntryEndpoints
 {
+    private const long MaximumFileSize = 10L * 1024 * 1024;
+    private const long MaximumAggregateFileSize = 30L * 1024 * 1024;
+    private const int MaximumAdditionalFiles = 2;
+    private const int MaximumTotalFiles = 3;
+
+    private static readonly HashSet<string> AllowedImageContentTypes =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+        };
+
     public static IEndpointRouteBuilder MapMaintenanceEntryEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/maintenance", async (
@@ -69,7 +82,7 @@ public static class MaintenanceEntryEndpoints
                 if (currentUserContext.RoleId < 1)
                     return Results.Forbid();
 
-                var (request, uploadedImageUrl) = await ReadCreateMaintenanceRequestAsync(
+                var (request, uploadedImageUrls) = await ReadCreateMaintenanceRequestAsync(
                     httpRequest,
                     currentUserContext,
                     fileStorageService,
@@ -85,11 +98,7 @@ public static class MaintenanceEntryEndpoints
                 }
                 catch
                 {
-                    if (!string.IsNullOrWhiteSpace(uploadedImageUrl))
-                    {
-                        await fileStorageService.DeleteAsync(uploadedImageUrl, CancellationToken.None);
-                    }
-
+                    await DeleteUploadedFilesAsync(fileStorageService, uploadedImageUrls);
                     throw;
                 }
 
@@ -153,7 +162,7 @@ public static class MaintenanceEntryEndpoints
         return app;
     }
 
-    private static async Task<(CreateMaintenanceEntryRequest? Request, string? UploadedImageUrl)> ReadCreateMaintenanceRequestAsync(
+    private static async Task<(CreateMaintenanceEntryRequest? Request, IReadOnlyList<string> UploadedImageUrls)> ReadCreateMaintenanceRequestAsync(
         HttpRequest httpRequest,
         ICurrentUserContext currentUserContext,
         IFileStorageService fileStorageService,
@@ -162,34 +171,50 @@ public static class MaintenanceEntryEndpoints
         if (!httpRequest.HasFormContentType)
         {
             var jsonRequest = await httpRequest.ReadFromJsonAsync<CreateMaintenanceEntryRequest>(cancellationToken);
-            return (jsonRequest, null);
+            return (jsonRequest, Array.Empty<string>());
         }
 
         var form = await httpRequest.ReadFormAsync(cancellationToken);
         var imageUrl = ReadOptional(form, "imageUrl");
-        string? uploadedImageUrl = null;
-        var file = form.Files.GetFile("file");
+        var primaryFiles = form.Files
+            .Where(candidate => string.Equals(candidate.Name, "file", StringComparison.Ordinal))
+            .ToArray();
+        var additionalFiles = form.Files
+            .Where(candidate => string.Equals(candidate.Name, "additionalFiles", StringComparison.Ordinal))
+            .ToArray();
 
-        if (file is { Length: > 0 })
+        if (primaryFiles.Length > 1)
+            throw new InvalidOperationException("Only one primary file is allowed.");
+
+        if (additionalFiles.Length > MaximumAdditionalFiles)
+            throw new InvalidOperationException("A maximum of two additional files is allowed.");
+
+        var allFiles = primaryFiles.Concat(additionalFiles).ToArray();
+        if (allFiles.Length > MaximumTotalFiles)
+            throw new InvalidOperationException("A maximum of three files is allowed.");
+
+        foreach (var candidate in allFiles)
         {
-            if (file.Length > 5L * 1024 * 1024)
-                throw new InvalidOperationException("File is too large. Maximum size is 5MB.");
+            if (candidate.Length <= 0)
+                throw new InvalidOperationException("Uploaded files cannot be empty.");
 
-            if (string.IsNullOrWhiteSpace(file.ContentType) ||
-                file.ContentType is not ("image/jpeg" or "image/png" or "image/webp"))
+            if (candidate.Length > MaximumFileSize)
+                throw new InvalidOperationException("File is too large. Maximum size is 10 MiB.");
+
+            if (string.IsNullOrWhiteSpace(candidate.ContentType) ||
+                !AllowedImageContentTypes.Contains(candidate.ContentType))
                 throw new InvalidOperationException("Invalid file type.");
-
-            await using var stream = file.OpenReadStream();
-            uploadedImageUrl = await fileStorageService.UploadAsync(
-                stream,
-                file.FileName,
-                file.ContentType,
-                currentUserContext.TenantId.ToString(),
-                cancellationToken);
-            imageUrl = uploadedImageUrl;
         }
 
-        var request = new CreateMaintenanceEntryRequest
+        if (allFiles.Sum(candidate => candidate.Length) > MaximumAggregateFileSize)
+            throw new InvalidOperationException("Combined file size exceeds 30 MiB.");
+
+        if (additionalFiles.Length > 0 &&
+            primaryFiles.Length == 0 &&
+            string.IsNullOrWhiteSpace(imageUrl))
+            throw new InvalidOperationException("A primary image is required when additional images are provided.");
+
+        var parsedRequest = new CreateMaintenanceEntryRequest
         {
             MachineId = ReadGuid(form, "machineId") ?? Guid.Empty,
             Date = DateOnly.Parse(ReadRequired(form, "date")),
@@ -201,7 +226,84 @@ public static class MaintenanceEntryEndpoints
             IsSafeToOperate = bool.Parse(ReadRequired(form, "isSafeToOperate"))
         };
 
-        return (request, uploadedImageUrl);
+        var uploadedImageUrls = new List<string>(allFiles.Length);
+        var additionalImageUrls = new List<string>(additionalFiles.Length);
+
+        try
+        {
+            if (primaryFiles.Length == 1)
+            {
+                imageUrl = await UploadAsync(
+                    primaryFiles[0],
+                    currentUserContext,
+                    fileStorageService,
+                    cancellationToken);
+                uploadedImageUrls.Add(imageUrl);
+            }
+
+            foreach (var additionalFile in additionalFiles)
+            {
+                var additionalImageUrl = await UploadAsync(
+                    additionalFile,
+                    currentUserContext,
+                    fileStorageService,
+                    cancellationToken);
+                uploadedImageUrls.Add(additionalImageUrl);
+                additionalImageUrls.Add(additionalImageUrl);
+            }
+        }
+        catch
+        {
+            await DeleteUploadedFilesAsync(fileStorageService, uploadedImageUrls);
+            throw;
+        }
+
+        var request = new CreateMaintenanceEntryRequest
+        {
+            MachineId = parsedRequest.MachineId,
+            Date = parsedRequest.Date,
+            MaintenanceTypeId = parsedRequest.MaintenanceTypeId,
+            Description = parsedRequest.Description,
+            ImageUrl = imageUrl,
+            AdditionalImageUrls = additionalImageUrls,
+            SparePartsUsed = parsedRequest.SparePartsUsed,
+            WorkHours = parsedRequest.WorkHours,
+            IsSafeToOperate = parsedRequest.IsSafeToOperate
+        };
+
+        return (request, uploadedImageUrls);
+    }
+
+    private static async Task<string> UploadAsync(
+        IFormFile file,
+        ICurrentUserContext currentUserContext,
+        IFileStorageService fileStorageService,
+        CancellationToken cancellationToken)
+    {
+        await using var stream = file.OpenReadStream();
+        return await fileStorageService.UploadAsync(
+            stream,
+            file.FileName,
+            file.ContentType,
+            currentUserContext.TenantId.ToString(),
+            cancellationToken);
+    }
+
+    private static async Task DeleteUploadedFilesAsync(
+        IFileStorageService fileStorageService,
+        IEnumerable<string> uploadedImageUrls)
+    {
+        foreach (var uploadedImageUrl in uploadedImageUrls.Reverse())
+        {
+            try
+            {
+                await fileStorageService.DeleteAsync(uploadedImageUrl, CancellationToken.None);
+            }
+            catch
+            {
+                // Preserve the original upload/database exception while attempting every cleanup.
+            }
+        }
     }
 
     private static string ReadRequired(IFormCollection form, string key)
@@ -225,4 +327,3 @@ public static class MaintenanceEntryEndpoints
         return string.IsNullOrWhiteSpace(value) ? null : Guid.Parse(value);
     }
 }
-

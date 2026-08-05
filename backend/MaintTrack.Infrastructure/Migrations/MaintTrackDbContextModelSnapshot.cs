@@ -717,6 +717,51 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.ToTable("MaintenanceEntries", (string)null);
                 });
 
+            modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntryImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("image_url");
+
+                    b.Property<Guid>("MaintenanceEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("maintenance_entry_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MaintenanceEntryId", "SortOrder")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "MaintenanceEntryId");
+
+                    b.ToTable("maintenance_entry_images", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_maintenance_entry_images_sort_order", "sort_order >= 1 AND sort_order <= 2");
+                        });
+                });
+
             modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceType", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1197,6 +1242,17 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.Navigation("MaintenanceType");
                 });
 
+            modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntryImage", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Maintenance.MaintenanceEntry", "MaintenanceEntry")
+                        .WithMany("AdditionalImages")
+                        .HasForeignKey("MaintenanceEntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MaintenanceEntry");
+                });
+
             modelBuilder.Entity("MaintTrack.Domain.MachineComponents.MachineComponentMapping", b =>
                 {
                     b.HasOne("MaintTrack.Domain.MachineComponents.MachineComponent", "Component")
@@ -1280,6 +1336,11 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.Navigation("Inspections");
 
                     b.Navigation("Treatments");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntry", b =>
+                {
+                    b.Navigation("AdditionalImages");
                 });
 #pragma warning restore 612, 618
         }
