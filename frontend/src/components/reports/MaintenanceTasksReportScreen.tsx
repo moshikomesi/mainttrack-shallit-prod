@@ -93,7 +93,7 @@ export function MaintenanceTasksReportScreen({
     const segments = [t('reports.title'), t('reports.tasks.menuTitle')];
     if (expandedTask) {
       segments.push(reportDateLocationLabel(t, language, expandedTask.taskDate.slice(0, 10)));
-      if (expandedTask.description.trim()) {
+      if ((expandedTask.description?.trim() ?? '').length > 0) {
         segments.push(taskLocationLabel(t, expandedTask.description));
       }
     }

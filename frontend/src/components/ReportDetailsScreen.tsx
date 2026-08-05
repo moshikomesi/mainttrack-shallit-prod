@@ -639,7 +639,7 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                             </span>
                           </div>
                         )}
-                        {maintenanceReport.description.trim().length > 0 && (
+                        {(maintenanceReport.description?.trim() ?? '').length > 0 && (
                           <div>
                             <span className="text-neutral-600">{t('log.fault')}: </span>
                             <span className="text-neutral-900">{maintenanceReport.description}</span>
