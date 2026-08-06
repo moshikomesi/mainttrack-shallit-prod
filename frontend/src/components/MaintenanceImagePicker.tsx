@@ -31,6 +31,8 @@ export function MaintenanceImagePicker({
   const additionalSources = additionalImages
     .map((src, index) => ({ src: safeImageSrc(src), index }))
     .filter((item): item is { src: string; index: number } => Boolean(item.src));
+  const canAddAdditional =
+    Boolean(primarySrc) && additionalImages.length < MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES;
 
   const selectPrimary = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -45,7 +47,7 @@ export function MaintenanceImagePicker({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="relative space-y-3">
       {primarySrc ? (
         <div className="space-y-2">
           <div className="relative">
@@ -61,7 +63,7 @@ export function MaintenanceImagePicker({
               aria-label={t('log.removePhoto')}
               className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4" aria-hidden />
             </button>
           </div>
           <button
@@ -105,7 +107,7 @@ export function MaintenanceImagePicker({
             className="w-full p-3 flex flex-col items-center justify-center gap-1 text-neutral-700 hover:bg-neutral-50 transition-colors rounded-lg disabled:opacity-50"
           >
             <div className="flex items-center justify-center gap-2">
-              <Camera className="w-5 h-5" />
+              <Camera className="w-5 h-5" aria-hidden />
               <span className="text-sm font-medium">{t('log.takePicture')}</span>
             </div>
             <span className="text-xs text-neutral-500">{t('log.dropPhoto')}</span>
@@ -113,68 +115,65 @@ export function MaintenanceImagePicker({
         </div>
       )}
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-neutral-600">
-            {t('log.additionalPhotos')} ({additionalImages.length}/
-            {MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES})
-          </span>
-          <button
-            type="button"
-            onClick={() => additionalInputRef.current?.click()}
-            disabled={
-              disabled ||
-              !primarySrc ||
-              additionalImages.length >= MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES
-            }
-            className="inline-flex items-center gap-1.5 px-3 py-2 border border-neutral-300 rounded-lg text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Images className="w-4 h-4" />
-            {t('log.addOptionalPhotos')}
-          </button>
-        </div>
-        {additionalSources.length > 0 && (
-          <div className="grid grid-cols-2 gap-2">
-            {additionalSources.map(({ src, index }) => (
-              <div key={`${src}-${index}`} className="relative">
-                <img
-                  src={src}
-                  alt={t('log.maintenancePhotoAlt')}
-                  className="w-full h-24 object-cover rounded-lg border border-neutral-300"
-                />
-                <button
-                  type="button"
-                  onClick={() => onRemoveAdditional(index)}
-                  disabled={disabled}
-                  aria-label={t('log.removePhoto')}
-                  className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:opacity-50"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        {!primarySrc && (
-          <p className="text-xs text-neutral-500">{t('log.additionalPhotosRequirePrimary')}</p>
-        )}
-      </div>
+      {primarySrc && (
+        <div className="space-y-2">
+          {additionalSources.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {additionalSources.map(({ src, index }) => (
+                <div key={`${src}-${index}`} className="relative">
+                  <img
+                    src={src}
+                    alt={t('log.maintenancePhotoAlt')}
+                    className="w-full h-24 object-cover rounded-lg border border-neutral-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onRemoveAdditional(index)}
+                    disabled={disabled}
+                    aria-label={t('log.removePhoto')}
+                    className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:opacity-50"
+                  >
+                    <X className="w-3.5 h-3.5" aria-hidden />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
-      <input
-        ref={primaryInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        onChange={selectPrimary}
-        className="hidden"
-      />
-      <input
-        ref={additionalInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        multiple
-        onChange={selectAdditional}
-        className="hidden"
-      />
+          {canAddAdditional && (
+            <button
+              type="button"
+              onClick={() => additionalInputRef.current?.click()}
+              disabled={disabled}
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Images className="w-4 h-4" aria-hidden />
+              {t('log.addOptionalPhotos')}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Native file inputs must stay display:none — browsers paint "No file chosen" otherwise. */}
+      <div className="hidden" aria-hidden="true">
+        <input
+          ref={primaryInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={selectPrimary}
+          tabIndex={-1}
+          style={{ display: 'none' }}
+        />
+        <input
+          ref={additionalInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          multiple
+          onChange={selectAdditional}
+          tabIndex={-1}
+          style={{ display: 'none' }}
+        />
+      </div>
     </div>
   );
 }

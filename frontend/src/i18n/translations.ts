@@ -398,9 +398,9 @@ export const translations: Record<string, Record<Language, string>> = {
     th: 'รูปภาพเสริม',
   },
   'log.addOptionalPhotos': {
-    en: 'Add photos',
-    he: 'הוסף תמונות',
-    th: 'เพิ่มรูปภาพ',
+    en: 'Add additional images',
+    he: 'הוסף תמונות נוספות',
+    th: 'เพิ่มรูปภาพเพิ่มเติม',
   },
   'log.additionalPhotosRequirePrimary': {
     en: 'Add the primary photo first',

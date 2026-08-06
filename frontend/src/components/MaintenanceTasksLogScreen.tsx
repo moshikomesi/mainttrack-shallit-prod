@@ -274,13 +274,16 @@ export function MaintenanceTasksLogScreen({ onSubmit }: MaintenanceLogScreenProp
         </div>
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handlePhotoSelect}
-        className="hidden"
-      />
+      <div className="hidden" aria-hidden="true">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handlePhotoSelect}
+          tabIndex={-1}
+          style={{ display: 'none' }}
+        />
+      </div>
     </div>
   );
 }
