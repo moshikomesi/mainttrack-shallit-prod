@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { useLanguage } from '../context/LanguageContext';
-import { X, Camera, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { AppHeader } from './AppHeader';
+import { MaintenanceImagePicker } from './MaintenanceImagePicker';
 import { ReadOnlyDateBanner } from './ReadOnlyDateBanner';
 import { validateRequired, type FieldCheck } from '../utils/validateForm';
 import {
@@ -11,6 +12,8 @@ import {
   submitMaintenanceRows,
 } from '../services/maintenanceBatchSubmit';
 import {
+  MAINTENANCE_LOG_IMAGE_MAX_BYTES,
+  MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES,
   MaintenanceImageValidationError,
   validateMaintenanceImageFile,
 } from '../services/uploadService';
@@ -18,7 +21,6 @@ import type { MaintenanceLogEntry, MaintenanceLogScreenProps } from '../types/ma
 import { apiFetch } from '../api/apiClient';
 import { endpoints } from '../api/endpoints';
 import { getCurrentUserDisplayName } from '../auth/authSession';
-import { safeImageSrc } from '../utils/safeUrl';
 import { getMaintenanceTypes } from '../services/maintenanceTypeService';
 
 type MaintenanceTypeOption = { id: string; code: string };
@@ -39,7 +41,6 @@ function sortMaintenanceTypesForDisplay(
 export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
   const { t } = useLanguage();
   const today = new Date().toLocaleDateString('en-CA');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const entriesRef = useRef<MaintenanceLogEntry[]>([]);
   const mountedRef = useRef(true);
   const submittingRef = useRef(false);
@@ -78,8 +79,6 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
   const [invalidFieldId, setInvalidFieldId] = useState<string | null>(null);
   const [invalidErrorKey, setInvalidErrorKey] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [dropTargetEntryId, setDropTargetEntryId] = useState<string | null>(null);
-
   useEffect(() => {
     mountedRef.current = true;
     submitAbortRef.current = new AbortController();
@@ -91,6 +90,7 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
         if (e.photoPreviewUrl) {
           URL.revokeObjectURL(e.photoPreviewUrl);
         }
+        e.additionalPhotoPreviewUrls?.forEach((url) => URL.revokeObjectURL(url));
       }
     };
   }, []);
@@ -174,7 +174,7 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
     (entryId: string, file: File) => {
       if (submittingRef.current) return;
       try {
-        validateMaintenanceImageFile(file);
+        validateMaintenanceImageFile(file, MAINTENANCE_LOG_IMAGE_MAX_BYTES);
       } catch (e) {
         if (e instanceof MaintenanceImageValidationError) {
           toast.error(t(e.translationKey));
@@ -201,23 +201,55 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
     [t]
   );
 
-  const handleCameraCapture = (entryId: string) => {
-    if (submittingRef.current) return;
-    const input = fileInputRef.current;
-    if (input) {
-      input.dataset.entryId = entryId;
-      input.click();
-    }
-  };
+  const assignAdditionalPhotosToEntry = useCallback(
+    (entryId: string, files: File[]) => {
+      if (submittingRef.current) return;
+      const entry = entriesRef.current.find((item) => item.id === entryId);
+      if (!entry?.photoFile && !entry?.uploadedImageUrl) return;
 
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    const entryId = e.target.dataset.entryId;
-    e.target.value = '';
-    if (file && entryId) {
-      assignPhotoToEntry(entryId, file);
-    }
-  };
+      const availableSlots =
+        MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES - (entry.additionalPhotoFiles?.length ?? 0);
+      if (availableSlots <= 0) {
+        toast.error(t('validation.maximumAdditionalImages'));
+        return;
+      }
+
+      const accepted: File[] = [];
+      for (const file of files.slice(0, availableSlots)) {
+        try {
+          validateMaintenanceImageFile(file, MAINTENANCE_LOG_IMAGE_MAX_BYTES);
+          accepted.push(file);
+        } catch (e) {
+          if (e instanceof MaintenanceImageValidationError) {
+            toast.error(t(e.translationKey));
+            continue;
+          }
+          throw e;
+        }
+      }
+      if (files.length > availableSlots) {
+        toast.error(t('validation.maximumAdditionalImages'));
+      }
+      if (accepted.length === 0) return;
+
+      const previewUrls = accepted.map((file) => URL.createObjectURL(file));
+      setEntries((prev) =>
+        prev.map((item) =>
+          item.id === entryId
+            ? {
+                ...item,
+                additionalPhotoFiles: [...(item.additionalPhotoFiles ?? []), ...accepted],
+                additionalPhotoPreviewUrls: [
+                  ...(item.additionalPhotoPreviewUrls ?? []),
+                  ...previewUrls,
+                ],
+              }
+            : item
+        )
+      );
+    },
+    [t]
+  );
 
   const removePhoto = (entryId: string) => {
     setEntries((prev) =>
@@ -226,43 +258,36 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
         if (entry.photoPreviewUrl) {
           URL.revokeObjectURL(entry.photoPreviewUrl);
         }
+        entry.additionalPhotoPreviewUrls?.forEach((url) => URL.revokeObjectURL(url));
         return {
           ...entry,
           photoFile: undefined,
           photoPreviewUrl: undefined,
           uploadedImageUrl: undefined,
+          additionalPhotoFiles: undefined,
+          additionalPhotoPreviewUrls: undefined,
         };
       })
     );
   };
 
-  const handleDragOver = (e: React.DragEvent, entryId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (submittingRef.current) return;
-    if (dropTargetEntryId !== entryId) {
-      setDropTargetEntryId(entryId);
-    }
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const related = e.relatedTarget as Node | null;
-    if (!related || !e.currentTarget.contains(related)) {
-      setDropTargetEntryId(null);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent, entryId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDropTargetEntryId(null);
-    if (submittingRef.current) return;
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      assignPhotoToEntry(entryId, file);
-    }
+  const removeAdditionalPhoto = (entryId: string, index: number) => {
+    setEntries((prev) =>
+      prev.map((entry) => {
+        if (entry.id !== entryId) return entry;
+        const previewUrls = [...(entry.additionalPhotoPreviewUrls ?? [])];
+        const files = [...(entry.additionalPhotoFiles ?? [])];
+        const removedUrl = previewUrls[index];
+        if (removedUrl) URL.revokeObjectURL(removedUrl);
+        previewUrls.splice(index, 1);
+        files.splice(index, 1);
+        return {
+          ...entry,
+          additionalPhotoFiles: files,
+          additionalPhotoPreviewUrls: previewUrls,
+        };
+      })
+    );
   };
 
   const handleSubmit = async () => {
@@ -532,47 +557,19 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
                   {t('log.photo')}
                   <span className="text-red-500 ml-1">*</span>
                 </label>
-                {safeImageSrc(entry.uploadedImageUrl ?? entry.photoPreviewUrl) ? (
-                  <div className="relative">
-                    <img
-                      src={safeImageSrc(entry.uploadedImageUrl ?? entry.photoPreviewUrl)}
-                      alt={t('log.maintenancePhotoAlt')}
-                      className="w-full h-48 object-cover rounded-lg border border-neutral-300"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removePhoto(entry.id)}
-                      disabled={isSubmitting}
-                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div
-                    onDragOver={(e) => handleDragOver(e, entry.id)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, entry.id)}
-                    className={`rounded-lg border-2 border-dashed transition-colors ${
-                      dropTargetEntryId === entry.id
-                        ? 'border-neutral-800 bg-neutral-100'
-                        : 'border-neutral-300'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleCameraCapture(entry.id)}
-                      disabled={isSubmitting}
-                      className="w-full p-3 flex flex-col items-center justify-center gap-1 text-neutral-700 hover:border-neutral-500 hover:bg-neutral-50 transition-colors rounded-lg disabled:opacity-50"
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        <Camera className="w-5 h-5" />
-                        <span className="text-sm font-medium">{t('log.takePicture')}</span>
-                      </div>
-                      <span className="text-xs text-neutral-500">{t('log.dropPhoto')}</span>
-                    </button>
-                  </div>
-                )}
+                <MaintenanceImagePicker
+                  primaryImage={entry.uploadedImageUrl ?? entry.photoPreviewUrl}
+                  additionalImages={entry.additionalPhotoPreviewUrls ?? []}
+                  disabled={isSubmitting}
+                  onPrimarySelected={(file) => assignPhotoToEntry(entry.id, file)}
+                  onAdditionalSelected={(files) =>
+                    assignAdditionalPhotosToEntry(entry.id, files)
+                  }
+                  onRemovePrimary={() => removePhoto(entry.id)}
+                  onRemoveAdditional={(imageIndex) =>
+                    removeAdditionalPhoto(entry.id, imageIndex)
+                  }
+                />
                 {!rowHasImage && (
                   <p className="text-sm text-red-600 mt-1" role="status">
                     {t('validation.imageRequired')}
@@ -669,14 +666,6 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
           </button>
         </div>
       </div>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handlePhotoSelect}
-        className="hidden"
-      />
     </div>
   );
 }

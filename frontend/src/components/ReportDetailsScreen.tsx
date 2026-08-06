@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { getMorningRoundById, getMorningRoundTemplate } from '../services/morningRoundsService';
 import { getMorningRoundV2ReportById } from '../services/morningRoundV2Service';
 import { getMaintenanceById } from '../services/maintenanceService';
@@ -76,6 +76,20 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
   const [loadErrorTreatment, setLoadErrorTreatment] = useState<string | null>(null);
   const [machines, setMachines] = useState<MachineDto[]>([]);
   const [maintenanceTypes, setMaintenanceTypes] = useState<MaintenanceTypeDto[]>([]);
+  const [viewerImageIndex, setViewerImageIndex] = useState<number | null>(null);
+  const viewerTriggerRef = useRef<HTMLElement | null>(null);
+
+  const closeImageViewer = () => {
+    setViewerImageIndex(null);
+    const trigger = viewerTriggerRef.current;
+    viewerTriggerRef.current = null;
+    queueMicrotask(() => trigger?.focus());
+  };
+
+  const openImageViewer = (index: number, trigger: HTMLElement) => {
+    viewerTriggerRef.current = trigger;
+    setViewerImageIndex(index);
+  };
 
   useEffect(() => {
     if (reportType !== 'morning') return;
@@ -343,6 +357,37 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     if (!component) return null;
     return { component, details };
   }, [maintenanceReport?.description, maintenanceReport?.maintenanceTypeCode]);
+
+  const maintenanceImages = useMemo(() => {
+    if (!maintenanceReport) return [];
+    return [maintenanceReport.imageUrl, ...(maintenanceReport.additionalImages ?? []).map((image) => image.imageUrl)]
+      .map((url) => safeImageSrc(url))
+      .filter((url): url is string => Boolean(url));
+  }, [maintenanceReport]);
+
+  useEffect(() => {
+    setViewerImageIndex(null);
+    viewerTriggerRef.current = null;
+  }, [reportId, reportType]);
+
+  useEffect(() => {
+    if (viewerImageIndex == null) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeImageViewer();
+      } else if (event.key === 'ArrowLeft' && maintenanceImages.length > 1) {
+        setViewerImageIndex((current) =>
+          current == null ? null : (current - 1 + maintenanceImages.length) % maintenanceImages.length
+        );
+      } else if (event.key === 'ArrowRight' && maintenanceImages.length > 1) {
+        setViewerImageIndex((current) =>
+          current == null ? null : (current + 1) % maintenanceImages.length
+        );
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [maintenanceImages.length, viewerImageIndex]);
 
   const locationSegments = useMemo(() => {
     const segments = [t('reports.title')];
@@ -682,6 +727,30 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                         </div>
                       );
                     })()}
+                    {maintenanceImages.length > 1 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-medium text-neutral-600 mb-2">
+                          {t('log.imageGallery')}
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {maintenanceImages.map((imageSrc, index) => (
+                            <button
+                              type="button"
+                              key={`${imageSrc}-${index}`}
+                              onClick={(event) => openImageViewer(index, event.currentTarget)}
+                              aria-label={`${t('log.openImage')} ${index + 1}`}
+                              className="rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-800"
+                            >
+                              <img
+                                src={imageSrc}
+                                alt={`${t('log.maintenancePhotoAlt')} ${index + 1}`}
+                                className="w-full h-20 object-cover rounded-lg border border-neutral-300"
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -772,6 +841,63 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
           </>
         )}
       </div>
+      {viewerImageIndex != null &&
+        maintenanceImages.length > 1 &&
+        maintenanceImages[viewerImageIndex] && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('log.imageViewer')}
+          onClick={closeImageViewer}
+        >
+          <button
+            type="button"
+            onClick={closeImageViewer}
+            aria-label={t('log.closeViewer')}
+            className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/15 text-white hover:bg-white/25"
+          >
+            <X className="w-7 h-7" />
+          </button>
+          <img
+            src={maintenanceImages[viewerImageIndex]}
+            alt={`${t('log.maintenancePhotoAlt')} ${viewerImageIndex + 1}`}
+            className="max-w-[95vw] max-h-[88vh] object-contain"
+            onClick={(event) => event.stopPropagation()}
+          />
+          {maintenanceImages.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setViewerImageIndex(
+                    (viewerImageIndex - 1 + maintenanceImages.length) % maintenanceImages.length
+                  );
+                }}
+                aria-label={t('log.previousImage')}
+                className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/15 text-white hover:bg-white/25"
+              >
+                <ChevronLeft className="w-8 h-8" />
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setViewerImageIndex((viewerImageIndex + 1) % maintenanceImages.length);
+                }}
+                aria-label={t('log.nextImage')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/15 text-white hover:bg-white/25"
+              >
+                <ChevronRight className="w-8 h-8" />
+              </button>
+            </>
+          )}
+          <div className="absolute bottom-4 text-sm text-white">
+            {viewerImageIndex + 1} / {maintenanceImages.length}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

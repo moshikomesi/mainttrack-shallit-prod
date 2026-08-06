@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace MaintTrack.Application.Maintenance;
 
@@ -13,6 +14,8 @@ public sealed class CreateMaintenanceEntryRequest
     public string? Description { get; init; }
 
     public string? ImageUrl { get; init; }
+
+    public IReadOnlyList<string>? AdditionalImageUrls { get; init; }
 
     public string? SparePartsUsed { get; init; }
 

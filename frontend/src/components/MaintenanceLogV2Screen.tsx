@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useLanguage } from '../context/LanguageContext';
-import { Camera, Loader2, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { AppHeader } from './AppHeader';
+import { MaintenanceImagePicker } from './MaintenanceImagePicker';
 import { ReadOnlyDateBanner } from './ReadOnlyDateBanner';
 import { validateRequired, type FieldCheck } from '../utils/validateForm';
 import { submitOneMaintenanceRow } from '../services/maintenanceBatchSubmit';
 import {
+  MAINTENANCE_LOG_IMAGE_MAX_BYTES,
+  MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES,
   MaintenanceImageValidationError,
   validateMaintenanceImageFile,
 } from '../services/uploadService';
@@ -19,12 +22,10 @@ import {
 } from '../services/maintenanceLogV2Submit';
 import type { MaintenanceLogEntry, MaintenanceLogScreenProps } from '../types/maintenance';
 import { getCurrentUserDisplayName } from '../auth/authSession';
-import { safeImageSrc } from '../utils/safeUrl';
 
 export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) {
   const { t } = useLanguage();
   const today = new Date().toLocaleDateString('en-CA');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
   const submittingRef = useRef(false);
   const submitAbortRef = useRef<AbortController | null>(null);
@@ -48,7 +49,10 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
   const [photoFile, setPhotoFile] = useState<File | undefined>();
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | undefined>();
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null | undefined>();
-  const [dropTargetActive, setDropTargetActive] = useState(false);
+  const [additionalPhotoFiles, setAdditionalPhotoFiles] = useState<File[]>([]);
+  const [additionalPhotoPreviewUrls, setAdditionalPhotoPreviewUrls] = useState<string[]>([]);
+  const photoPreviewUrlRef = useRef<string | undefined>();
+  const additionalPreviewUrlsRef = useRef<string[]>([]);
 
   const [name] = useState(() => getCurrentUserDisplayName());
   const [isDeclarationConfirmed, setIsDeclarationConfirmed] = useState(false);
@@ -77,6 +81,8 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
   }, [selectedArrayId, selectedMachineId, selectedComponent, isOtherComponent, otherComponentText]);
 
   const rowHasImage = Boolean(photoFile || uploadedImageUrl);
+  photoPreviewUrlRef.current = photoPreviewUrl;
+  additionalPreviewUrlsRef.current = additionalPhotoPreviewUrls;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -85,11 +91,9 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
     return () => {
       mountedRef.current = false;
       ac.abort();
-      if (photoPreviewUrl) {
-        URL.revokeObjectURL(photoPreviewUrl);
-      }
+      if (photoPreviewUrlRef.current) URL.revokeObjectURL(photoPreviewUrlRef.current);
+      additionalPreviewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cleanup only on unmount
   }, []);
 
   useEffect(() => {
@@ -200,7 +204,7 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
     (file: File) => {
       if (submittingRef.current) return;
       try {
-        validateMaintenanceImageFile(file);
+        validateMaintenanceImageFile(file, MAINTENANCE_LOG_IMAGE_MAX_BYTES);
       } catch (e) {
         if (e instanceof MaintenanceImageValidationError) {
           toast.error(t(e.translationKey));
@@ -219,53 +223,61 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
     [photoPreviewUrl, t]
   );
 
-  const handleCameraCapture = () => {
-    if (submittingRef.current) return;
-    fileInputRef.current?.click();
-  };
+  const assignAdditionalPhotos = useCallback(
+    (files: File[]) => {
+      if (submittingRef.current || !rowHasImage) return;
+      const availableSlots = MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES - additionalPhotoFiles.length;
+      if (availableSlots <= 0) {
+        toast.error(t('validation.maximumAdditionalImages'));
+        return;
+      }
 
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (file) {
-      assignPhoto(file);
-    }
-  };
+      const accepted: File[] = [];
+      for (const file of files.slice(0, availableSlots)) {
+        try {
+          validateMaintenanceImageFile(file, MAINTENANCE_LOG_IMAGE_MAX_BYTES);
+          accepted.push(file);
+        } catch (e) {
+          if (e instanceof MaintenanceImageValidationError) {
+            toast.error(t(e.translationKey));
+            continue;
+          }
+          throw e;
+        }
+      }
+      if (files.length > availableSlots) {
+        toast.error(t('validation.maximumAdditionalImages'));
+      }
+      if (accepted.length === 0) return;
+
+      setAdditionalPhotoFiles((prev) => [...prev, ...accepted]);
+      setAdditionalPhotoPreviewUrls((prev) => [
+        ...prev,
+        ...accepted.map((file) => URL.createObjectURL(file)),
+      ]);
+    },
+    [additionalPhotoFiles.length, rowHasImage, t]
+  );
 
   const removePhoto = () => {
     if (photoPreviewUrl) {
       URL.revokeObjectURL(photoPreviewUrl);
     }
+    additionalPhotoPreviewUrls.forEach((url) => URL.revokeObjectURL(url));
     setPhotoFile(undefined);
     setPhotoPreviewUrl(undefined);
     setUploadedImageUrl(undefined);
+    setAdditionalPhotoFiles([]);
+    setAdditionalPhotoPreviewUrls([]);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (submittingRef.current) return;
-    setDropTargetActive(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const related = e.relatedTarget as Node | null;
-    if (!related || !e.currentTarget.contains(related)) {
-      setDropTargetActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDropTargetActive(false);
-    if (submittingRef.current) return;
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      assignPhoto(file);
-    }
+  const removeAdditionalPhoto = (index: number) => {
+    const removedUrl = additionalPhotoPreviewUrls[index];
+    if (removedUrl) URL.revokeObjectURL(removedUrl);
+    setAdditionalPhotoFiles((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+    setAdditionalPhotoPreviewUrls((prev) =>
+      prev.filter((_, itemIndex) => itemIndex !== index)
+    );
   };
 
   const handleSubmit = async () => {
@@ -361,6 +373,8 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
       photoFile,
       photoPreviewUrl,
       uploadedImageUrl,
+      additionalPhotoFiles,
+      additionalPhotoPreviewUrls,
     };
 
     submittingRef.current = true;
@@ -552,45 +566,15 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
                 {t('log.photo')}
                 <span className="text-red-500 ml-1">*</span>
               </label>
-              {safeImageSrc(uploadedImageUrl ?? photoPreviewUrl) ? (
-                <div className="relative">
-                  <img
-                    src={safeImageSrc(uploadedImageUrl ?? photoPreviewUrl)}
-                    alt={t('log.maintenancePhotoAlt')}
-                    className="w-full h-48 object-cover rounded-lg border border-neutral-300"
-                  />
-                  <button
-                    type="button"
-                    onClick={removePhoto}
-                    disabled={isSubmitting}
-                    className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <div
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  className={`rounded-lg border-2 border-dashed transition-colors ${
-                    dropTargetActive ? 'border-neutral-800 bg-neutral-100' : 'border-neutral-300'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={handleCameraCapture}
-                    disabled={isSubmitting}
-                    className="w-full p-3 flex flex-col items-center justify-center gap-1 text-neutral-700 hover:border-neutral-500 hover:bg-neutral-50 transition-colors rounded-lg disabled:opacity-50"
-                  >
-                    <div className="flex items-center justify-center gap-2">
-                      <Camera className="w-5 h-5" />
-                      <span className="text-sm font-medium">{t('log.takePicture')}</span>
-                    </div>
-                    <span className="text-xs text-neutral-500">{t('log.dropPhoto')}</span>
-                  </button>
-                </div>
-              )}
+              <MaintenanceImagePicker
+                primaryImage={uploadedImageUrl ?? photoPreviewUrl}
+                additionalImages={additionalPhotoPreviewUrls}
+                disabled={isSubmitting}
+                onPrimarySelected={assignPhoto}
+                onAdditionalSelected={assignAdditionalPhotos}
+                onRemovePrimary={removePhoto}
+                onRemoveAdditional={removeAdditionalPhoto}
+              />
               {!rowHasImage && (
                 <p className="text-sm text-red-600 mt-1" role="status">
                   {t('validation.imageRequired')}
@@ -664,14 +648,6 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
           </button>
         </div>
       </div>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handlePhotoSelect}
-        className="hidden"
-      />
     </div>
   );
 }

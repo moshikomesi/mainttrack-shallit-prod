@@ -44,9 +44,22 @@ using Amazon.Extensions.NETCore.Setup;
 using Amazon;
 using Amazon.Runtime;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
+
+const long MaximumRequestBodySize = 41_943_040;
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = MaximumRequestBodySize;
+});
+
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = MaximumRequestBodySize;
+});
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
