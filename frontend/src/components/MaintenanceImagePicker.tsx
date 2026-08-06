@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type CSSProperties } from 'react';
 import { Camera, Images, X } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES } from '../services/uploadService';
@@ -13,6 +13,41 @@ interface MaintenanceImagePickerProps {
   onRemovePrimary: () => void;
   onRemoveAdditional: (index: number) => void;
 }
+
+const imagePreviewFrameStyle: CSSProperties = {
+  position: 'relative',
+};
+
+const removeOverlayButtonStyle: CSSProperties = {
+  position: 'absolute',
+  top: 8,
+  right: 8,
+  zIndex: 2,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 36,
+  height: 36,
+  padding: 0,
+  border: 'none',
+  borderRadius: 8,
+  backgroundColor: '#ef4444',
+  color: '#ffffff',
+  cursor: 'pointer',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+};
+
+const removeTextButtonStyle: CSSProperties = {
+  width: '100%',
+  padding: '8px 12px',
+  border: '1px solid #fca5a5',
+  borderRadius: 8,
+  fontSize: 14,
+  fontWeight: 500,
+  color: '#dc2626',
+  backgroundColor: 'transparent',
+  cursor: 'pointer',
+};
 
 export function MaintenanceImagePicker({
   primaryImage,
@@ -47,10 +82,10 @@ export function MaintenanceImagePicker({
   };
 
   return (
-    <div className="relative space-y-3">
+    <div className="space-y-3">
       {primarySrc ? (
         <div className="space-y-2">
-          <div className="relative">
+          <div style={imagePreviewFrameStyle}>
             <img
               src={primarySrc}
               alt={t('log.maintenancePhotoAlt')}
@@ -61,9 +96,14 @@ export function MaintenanceImagePicker({
               onClick={onRemovePrimary}
               disabled={disabled}
               aria-label={t('log.removePhoto')}
-              className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+              title={t('log.removePhoto')}
+              style={{
+                ...removeOverlayButtonStyle,
+                opacity: disabled ? 0.5 : 1,
+                cursor: disabled ? 'not-allowed' : 'pointer',
+              }}
             >
-              <X className="w-4 h-4" aria-hidden />
+              <X className="w-5 h-5" aria-hidden />
             </button>
           </div>
           <button
@@ -73,6 +113,18 @@ export function MaintenanceImagePicker({
             className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
           >
             {t('log.replacePrimaryPhoto')}
+          </button>
+          <button
+            type="button"
+            onClick={onRemovePrimary}
+            disabled={disabled}
+            style={{
+              ...removeTextButtonStyle,
+              opacity: disabled ? 0.5 : 1,
+              cursor: disabled ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {t('log.removePhoto')}
           </button>
         </div>
       ) : (
@@ -116,29 +168,47 @@ export function MaintenanceImagePicker({
       )}
 
       {primarySrc && (
-        <div className="space-y-2">
-          {additionalSources.length > 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              {additionalSources.map(({ src, index }) => (
-                <div key={`${src}-${index}`} className="relative">
-                  <img
-                    src={src}
-                    alt={t('log.maintenancePhotoAlt')}
-                    className="w-full h-24 object-cover rounded-lg border border-neutral-300"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onRemoveAdditional(index)}
-                    disabled={disabled}
-                    aria-label={t('log.removePhoto')}
-                    className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:opacity-50"
-                  >
-                    <X className="w-3.5 h-3.5" aria-hidden />
-                  </button>
-                </div>
-              ))}
+        <div className="space-y-3">
+          {additionalSources.map(({ src, index }) => (
+            <div key={`${src}-${index}`} className="space-y-2">
+              <p className="text-xs font-medium text-neutral-600">
+                {t('log.additionalPhotos')} ({index + 1}/{MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES})
+              </p>
+              <div style={imagePreviewFrameStyle}>
+                <img
+                  src={src}
+                  alt={`${t('log.maintenancePhotoAlt')} ${index + 2}`}
+                  className="w-full h-48 object-cover rounded-lg border border-neutral-300"
+                />
+                <button
+                  type="button"
+                  onClick={() => onRemoveAdditional(index)}
+                  disabled={disabled}
+                  aria-label={t('log.removePhoto')}
+                  title={t('log.removePhoto')}
+                  style={{
+                    ...removeOverlayButtonStyle,
+                    opacity: disabled ? 0.5 : 1,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  <X className="w-5 h-5" aria-hidden />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemoveAdditional(index)}
+                disabled={disabled}
+                style={{
+                  ...removeTextButtonStyle,
+                  opacity: disabled ? 0.5 : 1,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {t('log.removePhoto')}
+              </button>
             </div>
-          )}
+          ))}
 
           {canAddAdditional && (
             <button

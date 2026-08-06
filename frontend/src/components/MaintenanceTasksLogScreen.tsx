@@ -181,7 +181,7 @@ export function MaintenanceTasksLogScreen({ onSubmit }: MaintenanceLogScreenProp
             <span className="text-red-500 ms-1">*</span>
           </label>
           {imageSrc ? (
-            <div className="relative">
+            <div style={{ position: 'relative' }}>
               <img
                 src={imageSrc}
                 alt={t('log.maintenanceTaskPhotoAlt')}
@@ -191,9 +191,29 @@ export function MaintenanceTasksLogScreen({ onSubmit }: MaintenanceLogScreenProp
                 type="button"
                 onClick={removePhoto}
                 disabled={isSubmitting}
-                className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+                aria-label={t('log.removePhoto')}
+                title={t('log.removePhoto')}
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  zIndex: 2,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 36,
+                  height: 36,
+                  padding: 0,
+                  border: 'none',
+                  borderRadius: 8,
+                  backgroundColor: '#ef4444',
+                  color: '#ffffff',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: isSubmitting ? 0.5 : 1,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+                }}
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" aria-hidden />
               </button>
             </div>
           ) : (

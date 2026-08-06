@@ -80,27 +80,54 @@ export function saveMorningRoundV2ConveyorChecklist(
   }
 }
 
+function readConveyorChecklistRaw(reportId: string): string | null {
+  const key = `${CONVEYOR_CHECKLIST_STORAGE_PREFIX}${reportId}`;
+  const lowerKey = `${CONVEYOR_CHECKLIST_STORAGE_PREFIX}${reportId.toLowerCase()}`;
+  try {
+    return localStorage.getItem(key) ?? localStorage.getItem(lowerKey);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStoredStatus(status: unknown): 'ok' | 'fail' | null {
+  if (status == null) return null;
+  const normalized = String(status).trim().toLowerCase();
+  if (normalized === 'ok' || normalized === 'pass') return 'ok';
+  if (normalized === 'fail') return 'fail';
+  return null;
+}
+
 export function loadMorningRoundV2ConveyorChecklist(
   reportId: string
 ): MorningRoundV2ConveyorChecklistItemState[] {
   const defaults = buildInitialConveyorChecklistState();
 
   try {
-    const raw = localStorage.getItem(`${CONVEYOR_CHECKLIST_STORAGE_PREFIX}${reportId}`);
+    const raw = readConveyorChecklistRaw(reportId);
     if (!raw) {
       return defaults;
     }
 
     const stored = JSON.parse(raw) as StoredConveyorChecklistItem[];
+    if (!Array.isArray(stored)) {
+      return defaults;
+    }
+
     return defaults.map((item) => {
       const match = stored.find((entry) => entry.id === item.id);
       if (!match) {
         return item;
       }
 
+      const status = normalizeStoredStatus(match.status);
+      if (!status) {
+        return item;
+      }
+
       return {
         ...item,
-        status: match.status,
+        status,
         notes: match.notes ?? '',
       };
     });

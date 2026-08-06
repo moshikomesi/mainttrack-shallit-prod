@@ -107,7 +107,7 @@ export function MorningRoundV2HierarchyView({
               </div>
             )}
 
-            {isExpanded && !array.children && (
+            {isExpanded && (!array.children || array.children.length === 0) && (
               <div className="divide-y divide-neutral-200">
                 {array.machines.map((machine) => (
                   <div

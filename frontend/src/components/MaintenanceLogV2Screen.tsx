@@ -352,7 +352,7 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
       return;
     }
 
-    const description = buildMaintenanceLogV2Description(componentSelection, fault, t);
+    const description = buildMaintenanceLogV2Description(componentSelection, fault);
     if (!description.trim()) {
       toast.error(t('validation.requiredDescription'));
       return;

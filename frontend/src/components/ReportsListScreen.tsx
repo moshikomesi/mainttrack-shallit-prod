@@ -20,6 +20,7 @@ import type { MaintenanceEntryDto } from '../types/maintenance';
 import type { TreatmentDto } from '../types/treatment';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/formatDate';
 import { formatTechnician } from '../utils/formatTechnician';
+import { resolveCatalogKey } from '../utils/resolveCatalogDisplayValue';
 import type { MorningRoundReportVariant, ReportListItem, ReportsListReturnContext, ReportsListScreenProps } from '../types/reports';
 
 function parseMaintenanceV2Description(description: string): { component: string; details: string } | null {
@@ -53,7 +54,7 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
   const [isLoadingHierarchy, setIsLoadingHierarchy] = useState(false);
   const [selectedArrayId, setSelectedArrayId] = useState('');
   const [selectedMachineId, setSelectedMachineId] = useState('');
-  const [selectedComponentLabel, setSelectedComponentLabel] = useState('');
+  const [selectedComponentKey, setSelectedComponentKey] = useState('');
   const [componentOptions, setComponentOptions] = useState<MachineComponentOption[]>([]);
   const [isLoadingComponents, setIsLoadingComponents] = useState(false);
 
@@ -242,7 +243,7 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
   const maintenanceScroll = useInfiniteScroll<ReportListItem>({
     fetchPage: fetchMaintenancePage,
     pageSize: 20,
-    resetKey: `${debouncedSearch}|${selectedArrayId}|${selectedMachineId}|${selectedComponentLabel}`,
+    resetKey: `${debouncedSearch}|${selectedArrayId}|${selectedMachineId}|${selectedComponentKey}`,
     enabled: selectedType === 'maintenance',
   });
 
@@ -289,15 +290,19 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
         return false;
       }
 
-      if (selectedComponentLabel) {
+      if (selectedComponentKey) {
         if (r.maintenanceTypeCode !== 'other' || !r.description) return false;
         const parsed = parseMaintenanceV2Description(r.description);
-        return parsed?.component === selectedComponentLabel;
+        if (!parsed) return false;
+        // Match by catalog key so filtering works across languages and for
+        // legacy rows that stored a localized component label.
+        const storedKey = resolveCatalogKey(parsed.component);
+        return storedKey === selectedComponentKey || parsed.component === selectedComponentKey;
       }
 
       return true;
     });
-  }, [filteredReports, machineIdsForSelectedArray, selectedComponentLabel, selectedType]);
+  }, [filteredReports, machineIdsForSelectedArray, selectedComponentKey, selectedType]);
 
   const showMorningVariantPicker = selectedType === 'morning' && morningVariant === null;
   const showMorningReportList = selectedType === 'morning' && morningVariant !== null;
@@ -612,7 +617,7 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                         const nextArrayId = e.target.value;
                         setSelectedArrayId(nextArrayId);
                         setSelectedMachineId('');
-                        setSelectedComponentLabel('');
+                        setSelectedComponentKey('');
                       }}
                       className="w-full px-3 py-2 bg-white border border-neutral-300 rounded text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800"
                     >
@@ -634,7 +639,7 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                       disabled={!selectedArrayId}
                       onChange={(e) => {
                         setSelectedMachineId(e.target.value);
-                        setSelectedComponentLabel('');
+                        setSelectedComponentKey('');
                       }}
                       className="w-full px-3 py-2 bg-white border border-neutral-300 rounded text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800 disabled:bg-neutral-50 disabled:text-neutral-500"
                     >
@@ -652,14 +657,14 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                       {t('reports.maintenanceFilters.component')}
                     </label>
                     <select
-                      value={selectedComponentLabel}
+                      value={selectedComponentKey}
                       disabled={!selectedMachineId || isLoadingComponents}
-                      onChange={(e) => setSelectedComponentLabel(e.target.value)}
+                      onChange={(e) => setSelectedComponentKey(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-neutral-300 rounded text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800 disabled:bg-neutral-50 disabled:text-neutral-500"
                     >
                       <option value="">{t('reports.maintenanceFilters.allComponents')}</option>
                       {componentOptions.map((c) => (
-                        <option key={c.id} value={t(c.nameKey)}>
+                        <option key={c.id} value={c.nameKey}>
                           {t(c.nameKey)}
                         </option>
                       ))}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { getMorningRoundById, getMorningRoundTemplate } from '../services/morningRoundsService';
@@ -16,12 +16,17 @@ import { MorningRoundV2HierarchyView } from './morningRound/MorningRoundV2Hierar
 import { ReportLocationHeader } from './reports/ReportLocationHeader';
 import { filterVisibleMorningRoundV2Arrays } from '../morningRoundV2Config';
 import { buildInitialGeneralChecklistState, loadMorningRoundV2GeneralChecklist } from '../morningRoundV2GeneralChecklist';
-import { groupMorningRoundV2Arrays, insertMorningRoundV2ConveyorsArray } from '../morningRoundV2Grouping';
+import {
+  groupMorningRoundV2Arrays,
+  insertMorningRoundV2ConveyorsArray,
+  MORNING_ROUND_V2_CONVEYORS_KEY,
+} from '../morningRoundV2Grouping';
 import {
   buildConveyorsHierarchyArray,
   buildInitialConveyorChecklistState,
   loadMorningRoundV2ConveyorChecklist,
 } from '../morningRoundV2ConveyorChecklist';
+import { normalizeMorningRoundV2Status } from './MorningRoundV2MachineStatus';
 import {
   arrayLocationLabel,
   checklistItemLocationLabel,
@@ -29,6 +34,7 @@ import {
   reportDateLocationLabel,
 } from '../utils/reportLocationLabels';
 import { resolveMaintenanceReportArrayLabel } from '../utils/resolveMaintenanceReportArray';
+import { resolveCatalogDisplayValue } from '../utils/resolveCatalogDisplayValue';
 import type { MorningRoundDto, MorningRoundTemplateItemDto } from '../types/morningRound';
 import type { MorningRoundV2Report } from '../types/morningRoundV2Report';
 import type { MaintenanceEntryDto } from '../types/maintenance';
@@ -48,10 +54,110 @@ interface ChecklistRow {
   note?: string;
 }
 
-function normalizeMorningV2Status(status: string | null | undefined): 'ok' | 'fail' | null {
-  if (status === 'ok' || status === 'fail') return status;
+function findReportMachineStatus(
+  report: MorningRoundV2Report,
+  nameKey: string
+): 'ok' | 'fail' | null {
+  for (const array of report.arrays) {
+    for (const machine of array.machines) {
+      if (machine.nameKey === nameKey) {
+        return normalizeMorningRoundV2Status(machine.status);
+      }
+    }
+  }
   return null;
 }
+
+/** Inline styles: project CSS is a curated Tailwind subset without absolute/overlay utilities. */
+const imageFrameStyle: CSSProperties = { position: 'relative' };
+
+const carouselNavButtonStyle = (side: 'left' | 'right'): CSSProperties => ({
+  position: 'absolute',
+  top: '50%',
+  [side]: 8,
+  transform: 'translateY(-50%)',
+  zIndex: 2,
+  padding: 8,
+  border: 'none',
+  borderRadius: 9999,
+  backgroundColor: 'rgba(0,0,0,0.45)',
+  color: '#ffffff',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+});
+
+const carouselCounterStyle: CSSProperties = {
+  position: 'absolute',
+  bottom: 8,
+  left: '50%',
+  transform: 'translateX(-50%)',
+  zIndex: 2,
+  padding: '2px 8px',
+  borderRadius: 9999,
+  backgroundColor: 'rgba(0,0,0,0.5)',
+  color: '#ffffff',
+  fontSize: 12,
+};
+
+const viewerOverlayStyle: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 100,
+  backgroundColor: 'rgba(0,0,0,0.95)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+const viewerCloseButtonStyle: CSSProperties = {
+  position: 'absolute',
+  top: 16,
+  right: 16,
+  zIndex: 10,
+  padding: 8,
+  border: 'none',
+  borderRadius: 9999,
+  backgroundColor: 'rgba(255,255,255,0.15)',
+  color: '#ffffff',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+const viewerNavButtonStyle = (side: 'left' | 'right'): CSSProperties => ({
+  position: 'absolute',
+  top: '50%',
+  [side]: 12,
+  transform: 'translateY(-50%)',
+  zIndex: 10,
+  padding: 8,
+  border: 'none',
+  borderRadius: 9999,
+  backgroundColor: 'rgba(255,255,255,0.15)',
+  color: '#ffffff',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+});
+
+const viewerCounterStyle: CSSProperties = {
+  position: 'absolute',
+  bottom: 16,
+  left: '50%',
+  transform: 'translateX(-50%)',
+  color: '#ffffff',
+  fontSize: 14,
+};
+
+const viewerImageStyle: CSSProperties = {
+  maxWidth: '95vw',
+  maxHeight: '88vh',
+  objectFit: 'contain',
+};
 
 export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDetailsScreenProps) {
   const { t, language } = useLanguage();
@@ -77,7 +183,9 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
   const [machines, setMachines] = useState<MachineDto[]>([]);
   const [maintenanceTypes, setMaintenanceTypes] = useState<MaintenanceTypeDto[]>([]);
   const [viewerImageIndex, setViewerImageIndex] = useState<number | null>(null);
+  const [carouselIndex, setCarouselIndex] = useState(0);
   const viewerTriggerRef = useRef<HTMLElement | null>(null);
+  const touchStartXRef = useRef<number | null>(null);
 
   const closeImageViewer = () => {
     setViewerImageIndex(null);
@@ -174,37 +282,67 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     [morningV2Report]
   );
 
-  const morningV2GeneralChecklist = useMemo(
-    () =>
-      morningV2Report
-        ? loadMorningRoundV2GeneralChecklist(morningV2Report.reportId)
-        : buildInitialGeneralChecklistState(),
-    [morningV2Report]
-  );
+  const morningV2GeneralChecklist = useMemo(() => {
+    if (!morningV2Report) {
+      return buildInitialGeneralChecklistState();
+    }
 
-  const morningV2ConveyorChecklist = useMemo(
-    () =>
-      morningV2Report
-        ? loadMorningRoundV2ConveyorChecklist(morningV2Report.reportId)
-        : buildInitialConveyorChecklistState(),
-    [morningV2Report]
-  );
+    // Prefer route reportId so viewer matches the opened report even if DTO id casing differs.
+    const stored = loadMorningRoundV2GeneralChecklist(reportId || morningV2Report.reportId);
+    const metalDetectorStatus = findReportMachineStatus(
+      morningV2Report,
+      'machine.packing.metalDetector'
+    );
+
+    return stored.map((item) => {
+      if (item.status) return item;
+      // Legacy general item "metal detector check" may only exist on the packing machine in the report.
+      if (item.id === 'general-check-35' && metalDetectorStatus) {
+        return { ...item, status: metalDetectorStatus };
+      }
+      return item;
+    });
+  }, [morningV2Report, reportId]);
+
+  const morningV2ConveyorChecklist = useMemo(() => {
+    if (!morningV2Report) {
+      return buildInitialConveyorChecklistState();
+    }
+
+    const stored = loadMorningRoundV2ConveyorChecklist(reportId || morningV2Report.reportId);
+    // Presentation conveyors checklist mirrors machine.conveyors.general when present on the report.
+    const reportConveyorStatus = findReportMachineStatus(
+      morningV2Report,
+      'machine.conveyors.general'
+    );
+
+    return stored.map((item) => {
+      if (item.status) return item;
+      if (item.id === 'conveyor-check-18' && reportConveyorStatus) {
+        return { ...item, status: reportConveyorStatus };
+      }
+      return item;
+    });
+  }, [morningV2Report, reportId]);
 
   const morningV2HierarchyArrays = useMemo(() => {
     if (!morningV2Report) {
       return [];
     }
 
-    const baseArrays = visibleMorningV2Arrays.map((array) => ({
-      arrayId: array.arrayId,
-      nameKey: array.nameKey,
-      machines: array.machines.map((machine) => ({
-        id: machine.machineId,
-        nameKey: machine.nameKey,
-        status: normalizeMorningV2Status(machine.status),
-        notes: machine.notes ?? '',
-      })),
-    }));
+    // Avoid a duplicate "Conveyors" accordion when the report also contains array.conveyors.
+    const baseArrays = visibleMorningV2Arrays
+      .filter((array) => array.nameKey !== MORNING_ROUND_V2_CONVEYORS_KEY)
+      .map((array) => ({
+        arrayId: array.arrayId,
+        nameKey: array.nameKey,
+        machines: array.machines.map((machine) => ({
+          id: machine.machineId,
+          nameKey: machine.nameKey,
+          status: normalizeMorningRoundV2Status(machine.status),
+          notes: machine.notes ?? '',
+        })),
+      }));
 
     const grouped = groupMorningRoundV2Arrays(baseArrays).map((array) => ({
       arrayId: array.arrayId,
@@ -358,17 +496,40 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     return { component, details };
   }, [maintenanceReport?.description, maintenanceReport?.maintenanceTypeCode]);
 
+  /** At most 1 primary + 2 additional = 3 images total. */
   const maintenanceImages = useMemo(() => {
     if (!maintenanceReport) return [];
     return [maintenanceReport.imageUrl, ...(maintenanceReport.additionalImages ?? []).map((image) => image.imageUrl)]
       .map((url) => safeImageSrc(url))
-      .filter((url): url is string => Boolean(url));
+      .filter((url): url is string => Boolean(url))
+      .slice(0, 3);
   }, [maintenanceReport]);
+
+  const showImageCarousel = maintenanceImages.length > 1;
+
+  const goToPreviousImage = () => {
+    if (maintenanceImages.length < 2) return;
+    setCarouselIndex(
+      (current) => (current - 1 + maintenanceImages.length) % maintenanceImages.length
+    );
+  };
+
+  const goToNextImage = () => {
+    if (maintenanceImages.length < 2) return;
+    setCarouselIndex((current) => (current + 1) % maintenanceImages.length);
+  };
 
   useEffect(() => {
     setViewerImageIndex(null);
+    setCarouselIndex(0);
     viewerTriggerRef.current = null;
+    touchStartXRef.current = null;
   }, [reportId, reportType]);
+
+  useEffect(() => {
+    if (carouselIndex < maintenanceImages.length) return;
+    setCarouselIndex(0);
+  }, [carouselIndex, maintenanceImages.length]);
 
   useEffect(() => {
     if (viewerImageIndex == null) return;
@@ -376,13 +537,19 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
       if (event.key === 'Escape') {
         closeImageViewer();
       } else if (event.key === 'ArrowLeft' && maintenanceImages.length > 1) {
-        setViewerImageIndex((current) =>
-          current == null ? null : (current - 1 + maintenanceImages.length) % maintenanceImages.length
-        );
+        setViewerImageIndex((current) => {
+          if (current == null) return null;
+          const next = (current - 1 + maintenanceImages.length) % maintenanceImages.length;
+          setCarouselIndex(next);
+          return next;
+        });
       } else if (event.key === 'ArrowRight' && maintenanceImages.length > 1) {
-        setViewerImageIndex((current) =>
-          current == null ? null : (current + 1) % maintenanceImages.length
-        );
+        setViewerImageIndex((current) => {
+          if (current == null) return null;
+          const next = (current + 1) % maintenanceImages.length;
+          setCarouselIndex(next);
+          return next;
+        });
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -421,7 +588,9 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
       segments.push(t('reports.maintenanceLog'));
       if (maintenanceReport) {
         segments.push(reportDateLocationLabel(t, language, maintenanceReport.date));
-        const machineName = machine ? t(machine.name) : maintenanceReport.machineId;
+        const machineName = machine
+          ? resolveCatalogDisplayValue(machine.name, t)
+          : maintenanceReport.machineId;
         segments.push(machineLocationLabel(t, machineName));
       }
       return segments;
@@ -432,9 +601,9 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
       if (treatmentReport) {
         segments.push(reportDateLocationLabel(t, language, treatmentReport.treatmentDate));
         const machineName = treatmentMachine
-          ? t(treatmentMachine.name)
+          ? resolveCatalogDisplayValue(treatmentMachine.name, t)
           : treatmentReport.machineName
-            ? t(treatmentReport.machineName)
+            ? resolveCatalogDisplayValue(treatmentReport.machineName, t)
             : t('common.notProvided');
         segments.push(machineLocationLabel(t, machineName));
       }
@@ -654,12 +823,16 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                         <div>
                           <span className="text-neutral-600">{t('log.machine')}: </span>
                           <span className="font-medium text-neutral-900">
-                            {machine ? t(machine.name) : maintenanceReport.machineId}
+                            {machine
+                              ? resolveCatalogDisplayValue(machine.name, t)
+                              : maintenanceReport.machineId}
                           </span>
                         </div>
                         <div>
                           <span className="text-neutral-600">{t('reports.maintenanceFilters.component')}: </span>
-                          <span className="font-medium text-neutral-900">{maintenanceV2Parts.component}</span>
+                          <span className="font-medium text-neutral-900">
+                            {resolveCatalogDisplayValue(maintenanceV2Parts.component, t)}
+                          </span>
                         </div>
                         {maintenanceV2Parts.details.length > 0 && (
                           <div>
@@ -673,14 +846,19 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                         <div>
                           <span className="text-neutral-600">{t('log.machine')}: </span>
                           <span className="font-medium text-neutral-900">
-                            {machine ? t(machine.name) : maintenanceReport.machineId}
+                            {machine
+                              ? resolveCatalogDisplayValue(machine.name, t)
+                              : maintenanceReport.machineId}
                           </span>
                         </div>
                         {maintenanceReport.maintenanceTypeCode && (
                           <div>
                             <span className="text-neutral-600">{t('log.maintenanceTypeLabel')}: </span>
                             <span className="font-medium text-neutral-900">
-                              {t(`maintenanceType.${maintenanceReport.maintenanceTypeCode}`)}
+                              {resolveCatalogDisplayValue(
+                                `maintenanceType.${maintenanceReport.maintenanceTypeCode}`,
+                                t
+                              )}
                             </span>
                           </div>
                         )}
@@ -714,40 +892,85 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                           : t('common.pending')}
                       </span>
                     </div>
-                    {(() => {
-                      const imageSrc = safeImageSrc(maintenanceReport.imageUrl);
-                      if (!imageSrc) return null;
-                      return (
-                        <div className="mt-3">
-                          <img
-                            src={imageSrc}
-                            alt={t('log.maintenancePhotoAlt')}
-                            className="w-full rounded-lg border border-neutral-300"
-                          />
-                        </div>
-                      );
-                    })()}
-                    {maintenanceImages.length > 1 && (
-                      <div className="mt-3">
-                        <p className="text-xs font-medium text-neutral-600 mb-2">
-                          {t('log.imageGallery')}
-                        </p>
-                        <div className="grid grid-cols-3 gap-2">
-                          {maintenanceImages.map((imageSrc, index) => (
-                            <button
-                              type="button"
-                              key={`${imageSrc}-${index}`}
-                              onClick={(event) => openImageViewer(index, event.currentTarget)}
-                              aria-label={`${t('log.openImage')} ${index + 1}`}
-                              className="rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-800"
-                            >
-                              <img
-                                src={imageSrc}
-                                alt={`${t('log.maintenancePhotoAlt')} ${index + 1}`}
-                                className="w-full h-20 object-cover rounded-lg border border-neutral-300"
-                              />
-                            </button>
-                          ))}
+                    {maintenanceImages.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {showImageCarousel && (
+                          <p className="text-xs font-medium text-neutral-600">
+                            {t('log.imageGallery')}
+                          </p>
+                        )}
+                        <div
+                          style={imageFrameStyle}
+                          onTouchStart={(event) => {
+                            if (!showImageCarousel) return;
+                            touchStartXRef.current = event.changedTouches[0]?.clientX ?? null;
+                          }}
+                          onTouchEnd={(event) => {
+                            if (!showImageCarousel || touchStartXRef.current == null) return;
+                            const endX = event.changedTouches[0]?.clientX;
+                            if (endX == null) {
+                              touchStartXRef.current = null;
+                              return;
+                            }
+                            const deltaX = endX - touchStartXRef.current;
+                            touchStartXRef.current = null;
+                            if (Math.abs(deltaX) < 40) return;
+                            if (deltaX > 0) goToPreviousImage();
+                            else goToNextImage();
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={(event) =>
+                              openImageViewer(
+                                showImageCarousel ? carouselIndex : 0,
+                                event.currentTarget
+                              )
+                            }
+                            aria-label={
+                              showImageCarousel
+                                ? `${t('log.openImage')} ${carouselIndex + 1}`
+                                : t('log.openImage')
+                            }
+                            className="block w-full rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-800"
+                          >
+                            <img
+                              src={
+                                showImageCarousel
+                                  ? maintenanceImages[carouselIndex]
+                                  : maintenanceImages[0]
+                              }
+                              alt={
+                                showImageCarousel
+                                  ? `${t('log.maintenancePhotoAlt')} ${carouselIndex + 1}`
+                                  : t('log.maintenancePhotoAlt')
+                              }
+                              className="w-full rounded-lg border border-neutral-300"
+                            />
+                          </button>
+                          {showImageCarousel && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={goToPreviousImage}
+                                aria-label={t('log.previousImage')}
+                                style={carouselNavButtonStyle('left')}
+                              >
+                                <ChevronLeft className="w-6 h-6" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={goToNextImage}
+                                aria-label={t('log.nextImage')}
+                                style={carouselNavButtonStyle('right')}
+                              >
+                                <ChevronRight className="w-6 h-6" aria-hidden />
+                              </button>
+                              <div style={carouselCounterStyle}>
+                                {carouselIndex + 1} / {maintenanceImages.length}
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
@@ -793,9 +1016,9 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                     <span className="text-neutral-600">{t('log.machine')}:</span>
                     <span className="font-medium text-neutral-900">
                       {treatmentMachine
-                        ? t(treatmentMachine.name)
+                        ? resolveCatalogDisplayValue(treatmentMachine.name, t)
                         : treatmentReport.machineName
-                          ? t(treatmentReport.machineName)
+                          ? resolveCatalogDisplayValue(treatmentReport.machineName, t)
                           : t('common.notProvided')}
                     </span>
                   </div>
@@ -803,7 +1026,10 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                     <span className="text-neutral-600">{t('treatment.type')}:</span>
                     <span className="font-medium text-neutral-900">
                       {treatmentMaintenanceTypeCode
-                        ? t(`maintenanceType.${treatmentMaintenanceTypeCode}`)
+                        ? resolveCatalogDisplayValue(
+                            `maintenanceType.${treatmentMaintenanceTypeCode}`,
+                            t
+                          )
                         : t('common.notProvided')}
                     </span>
                   </div>
@@ -841,11 +1067,9 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
           </>
         )}
       </div>
-      {viewerImageIndex != null &&
-        maintenanceImages.length > 1 &&
-        maintenanceImages[viewerImageIndex] && (
+      {viewerImageIndex != null && maintenanceImages[viewerImageIndex] && (
         <div
-          className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
+          style={viewerOverlayStyle}
           role="dialog"
           aria-modal="true"
           aria-label={t('log.imageViewer')}
@@ -855,47 +1079,55 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
             type="button"
             onClick={closeImageViewer}
             aria-label={t('log.closeViewer')}
-            className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/15 text-white hover:bg-white/25"
+            style={viewerCloseButtonStyle}
           >
-            <X className="w-7 h-7" />
+            <X className="w-7 h-7" aria-hidden />
           </button>
           <img
             src={maintenanceImages[viewerImageIndex]}
-            alt={`${t('log.maintenancePhotoAlt')} ${viewerImageIndex + 1}`}
-            className="max-w-[95vw] max-h-[88vh] object-contain"
+            alt={
+              showImageCarousel
+                ? `${t('log.maintenancePhotoAlt')} ${viewerImageIndex + 1}`
+                : t('log.maintenancePhotoAlt')
+            }
+            style={viewerImageStyle}
             onClick={(event) => event.stopPropagation()}
           />
-          {maintenanceImages.length > 1 && (
+          {showImageCarousel && (
             <>
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  setViewerImageIndex(
-                    (viewerImageIndex - 1 + maintenanceImages.length) % maintenanceImages.length
-                  );
+                  const next =
+                    (viewerImageIndex - 1 + maintenanceImages.length) %
+                    maintenanceImages.length;
+                  setViewerImageIndex(next);
+                  setCarouselIndex(next);
                 }}
                 aria-label={t('log.previousImage')}
-                className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/15 text-white hover:bg-white/25"
+                style={viewerNavButtonStyle('left')}
               >
-                <ChevronLeft className="w-8 h-8" />
+                <ChevronLeft className="w-8 h-8" aria-hidden />
               </button>
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  setViewerImageIndex((viewerImageIndex + 1) % maintenanceImages.length);
+                  const next = (viewerImageIndex + 1) % maintenanceImages.length;
+                  setViewerImageIndex(next);
+                  setCarouselIndex(next);
                 }}
                 aria-label={t('log.nextImage')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/15 text-white hover:bg-white/25"
+                style={viewerNavButtonStyle('right')}
               >
-                <ChevronRight className="w-8 h-8" />
+                <ChevronRight className="w-8 h-8" aria-hidden />
               </button>
+              <div style={viewerCounterStyle}>
+                {viewerImageIndex + 1} / {maintenanceImages.length}
+              </div>
             </>
           )}
-          <div className="absolute bottom-4 text-sm text-white">
-            {viewerImageIndex + 1} / {maintenanceImages.length}
-          </div>
         </div>
       )}
     </div>

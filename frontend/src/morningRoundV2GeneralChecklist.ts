@@ -61,27 +61,54 @@ export function saveMorningRoundV2GeneralChecklist(
   }
 }
 
+function readGeneralChecklistRaw(reportId: string): string | null {
+  const key = `${GENERAL_CHECKLIST_STORAGE_PREFIX}${reportId}`;
+  const lowerKey = `${GENERAL_CHECKLIST_STORAGE_PREFIX}${reportId.toLowerCase()}`;
+  try {
+    return localStorage.getItem(key) ?? localStorage.getItem(lowerKey);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStoredStatus(status: unknown): 'ok' | 'fail' | null {
+  if (status == null) return null;
+  const normalized = String(status).trim().toLowerCase();
+  if (normalized === 'ok' || normalized === 'pass') return 'ok';
+  if (normalized === 'fail') return 'fail';
+  return null;
+}
+
 export function loadMorningRoundV2GeneralChecklist(
   reportId: string
 ): MorningRoundV2GeneralChecklistItemState[] {
   const defaults = buildInitialGeneralChecklistState();
 
   try {
-    const raw = localStorage.getItem(`${GENERAL_CHECKLIST_STORAGE_PREFIX}${reportId}`);
+    const raw = readGeneralChecklistRaw(reportId);
     if (!raw) {
       return defaults;
     }
 
     const stored = JSON.parse(raw) as StoredGeneralChecklistItem[];
+    if (!Array.isArray(stored)) {
+      return defaults;
+    }
+
     const mappedDefaults = defaults.map((item) => {
       const match = stored.find((entry) => entry.id === item.id);
       if (!match) {
         return item;
       }
 
+      const status = normalizeStoredStatus(match.status);
+      if (!status) {
+        return item;
+      }
+
       return {
         ...item,
-        status: match.status,
+        status,
         notes: match.notes ?? '',
       };
     });
@@ -92,11 +119,12 @@ export function loadMorningRoundV2GeneralChecklist(
     const legacyWithData = LEGACY_GENERAL_CHECKLIST_ITEMS.reduce<MorningRoundV2GeneralChecklistItemState[]>(
       (acc, item) => {
         const match = stored.find((entry) => entry.id === item.id);
-        if (match) {
+        const status = match ? normalizeStoredStatus(match.status) : null;
+        if (match && status) {
           acc.push({
             id: item.id,
             translationKey: item.translationKey,
-            status: match.status,
+            status,
             notes: match.notes ?? '',
           });
         }

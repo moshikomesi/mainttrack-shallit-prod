@@ -6,15 +6,16 @@ export type MaintenanceLogV2ComponentSelection =
 
 export function buildMaintenanceLogV2Description(
   component: MaintenanceLogV2ComponentSelection,
-  faultDescription: string,
-  t: (key: string) => string
+  faultDescription: string
 ): string {
   const lines: string[] = [];
 
   if (component.kind === 'other') {
     lines.push(component.text.trim());
   } else {
-    lines.push(t(component.nameKey));
+    // Store the translation key (not the localized label) so report viewers can
+    // render the component in the user's current language.
+    lines.push(component.nameKey);
   }
 
   const fault = faultDescription.trim();
