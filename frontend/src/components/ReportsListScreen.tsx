@@ -26,10 +26,10 @@ import type { MorningRoundReportVariant, ReportListItem, ReportsListReturnContex
 function parseMaintenanceV2Description(description: string): { component: string; details: string } | null {
   const text = description ?? '';
   const parts = text.split('\n');
-  if (parts.length < 2) return null;
+  // First line is the component; remaining lines are optional fault details.
   const component = (parts[0] ?? '').trim();
-  const details = parts.slice(1).join('\n').trim();
   if (!component) return null;
+  const details = parts.slice(1).join('\n').trim();
   return { component, details };
 }
 

@@ -489,10 +489,12 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     if (maintenanceReport?.maintenanceTypeCode !== 'other') return null;
     const raw = maintenanceReport?.description ?? '';
     const parts = raw.split('\n');
-    if (parts.length < 2) return null;
+    // First line is the component (catalog key, legacy localized label, or free-text).
+    // Remaining lines are optional fault details — a single-line description is valid
+    // when only a catalog component was stored (no fault text).
     const component = (parts[0] ?? '').trim();
-    const details = parts.slice(1).join('\n').trim();
     if (!component) return null;
+    const details = parts.slice(1).join('\n').trim();
     return { component, details };
   }, [maintenanceReport?.description, maintenanceReport?.maintenanceTypeCode]);
 
