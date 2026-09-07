@@ -720,6 +720,14 @@ public class MaintTrackDbContext : DbContext
             .HasColumnName("treatment_date")
             .IsRequired();
 
+        entity.Property(x => x.MachineComponentId)
+            .HasColumnName("machine_component_id");
+
+        entity.HasOne(x => x.MachineComponent)
+            .WithMany()
+            .HasForeignKey(x => x.MachineComponentId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         entity.Property(x => x.MaintenanceTypeId)
             .HasColumnName("maintenance_type_id");
 
@@ -769,6 +777,8 @@ public class MaintTrackDbContext : DbContext
         entity.HasIndex(x => new { x.TenantId, x.TreatmentDate });
         entity.HasIndex(x => new { x.TenantId, x.MachineId });
         entity.HasIndex(x => new { x.TenantId, x.MaintenanceTypeId });
+        entity.HasIndex(x => x.MachineComponentId);
+        entity.HasIndex(x => new { x.TenantId, x.MachineComponentId });
 
         entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }

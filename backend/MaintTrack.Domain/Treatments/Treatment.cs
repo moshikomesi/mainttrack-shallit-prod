@@ -1,5 +1,6 @@
 using System;
 using MaintTrack.Domain.Common;
+using MaintTrack.Domain.MachineComponents;
 using MaintTrack.Domain.Machines;
 using MaintTrack.Domain.Maintenance;
 using MaintTrack.Domain.Users;
@@ -16,6 +17,11 @@ public class Treatment : TenantEntity
 
     public DateOnly TreatmentDate { get; set; }
 
+    public Guid? MachineComponentId { get; set; }
+
+    public MachineComponent? MachineComponent { get; set; }
+
+    /// <summary>Legacy field for treatments created before machine-component selection.</summary>
     public Guid? MaintenanceTypeId { get; set; }
 
     public MaintenanceType? MaintenanceType { get; set; }

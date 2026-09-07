@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MaintTrack.Application.Abstractions;
+using MaintTrack.Application.MachineComponents;
 using MaintTrack.Application.Treatments;
 using MaintTrack.Domain.Audit;
 using MaintTrack.Domain.Treatments;
@@ -17,15 +18,19 @@ public sealed class TreatmentService : ITreatmentService
     private readonly MaintTrackDbContext _dbContext;
     private readonly ITenantContext _tenantContext;
     private readonly ICurrentUserContext _currentUserContext;
+    private readonly IMachineComponentService _machineComponentService;
 
     public TreatmentService(
         MaintTrackDbContext dbContext,
         ITenantContext tenantContext,
-        ICurrentUserContext currentUserContext)
+        ICurrentUserContext currentUserContext,
+        IMachineComponentService machineComponentService)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
         _currentUserContext = currentUserContext ?? throw new ArgumentNullException(nameof(currentUserContext));
+        _machineComponentService = machineComponentService
+            ?? throw new ArgumentNullException(nameof(machineComponentService));
     }
 
     public async Task<Guid> CreateAsync(CreateTreatmentRequest request, CancellationToken ct)
@@ -33,17 +38,21 @@ public sealed class TreatmentService : ITreatmentService
         if (_tenantContext.TenantId is null)
             throw new InvalidOperationException("Tenant not resolved.");
 
-        var machineExists = await _dbContext.Machines
-            .AsNoTracking()
-            .AnyAsync(x => x.Id == request.MachineId && x.IsActive, ct);
-        if (!machineExists)
-            throw new InvalidOperationException("Machine not found.");
+        if (request.MachineComponentId == Guid.Empty)
+            throw new InvalidOperationException("Machine component is required.");
 
-        var maintenanceTypeExists = await _dbContext.MaintenanceTypes
-            .AsNoTracking()
-            .AnyAsync(x => x.Id == request.MaintenanceTypeId && x.IsActive, ct);
-        if (!maintenanceTypeExists)
-            throw new InvalidOperationException("Maintenance type not found.");
+        IReadOnlyList<MachineComponentDto> mappedComponents;
+        try
+        {
+            mappedComponents = await _machineComponentService.GetByMachineIdAsync(request.MachineId, ct);
+        }
+        catch (InvalidOperationException ex) when (ex.Message == "Machine not found.")
+        {
+            throw new InvalidOperationException("Machine not found.");
+        }
+
+        if (!mappedComponents.Any(component => component.Id == request.MachineComponentId))
+            throw new InvalidOperationException("Machine component not found or not mapped to machine.");
 
         var tenantId = _tenantContext.TenantId.Value;
         var userId = _currentUserContext.UserId;
@@ -57,7 +66,7 @@ public sealed class TreatmentService : ITreatmentService
             MachineId = request.MachineId,
             EquipmentType = EquipmentType.Compressor,
             TreatmentDate = request.TreatmentDate,
-            MaintenanceTypeId = request.MaintenanceTypeId,
+            MachineComponentId = request.MachineComponentId,
             TreatmentType = TreatmentType.Corrective,
             Description = request.Description,
             Technician = request.Technician,
@@ -109,7 +118,10 @@ public sealed class TreatmentService : ITreatmentService
                 t.Id,
                 t.MachineId,
                 t.Machine == null ? null : t.Machine.Name,
+                t.Machine == null ? null : t.Machine.ArrayId,
                 t.TreatmentDate,
+                t.MachineComponentId,
+                t.MachineComponent == null ? null : t.MachineComponent.NameKey,
                 t.MaintenanceTypeId,
                 t.MaintenanceType == null ? null : t.MaintenanceType.Code,
                 t.Description,
@@ -130,7 +142,10 @@ public sealed class TreatmentService : ITreatmentService
                 t.Id,
                 t.MachineId,
                 t.Machine == null ? null : t.Machine.Name,
+                t.Machine == null ? null : t.Machine.ArrayId,
                 t.TreatmentDate,
+                t.MachineComponentId,
+                t.MachineComponent == null ? null : t.MachineComponent.NameKey,
                 t.MaintenanceTypeId,
                 t.MaintenanceType == null ? null : t.MaintenanceType.Code,
                 t.Description,

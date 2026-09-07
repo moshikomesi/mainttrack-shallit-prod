@@ -982,6 +982,10 @@ namespace MaintTrack.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("equipment_type");
 
+                    b.Property<Guid?>("MachineComponentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("machine_component_id");
+
                     b.Property<Guid?>("MachineId")
                         .HasColumnType("uuid")
                         .HasColumnName("machine_id");
@@ -1021,11 +1025,15 @@ namespace MaintTrack.Infrastructure.Migrations
 
                     b.HasIndex("CreatedByUserId");
 
+                    b.HasIndex("MachineComponentId");
+
                     b.HasIndex("MachineId");
 
                     b.HasIndex("MaintenanceTypeId");
 
                     b.HasIndex("TenantId", "EquipmentType");
+
+                    b.HasIndex("TenantId", "MachineComponentId");
 
                     b.HasIndex("TenantId", "MachineId");
 
@@ -1284,6 +1292,11 @@ namespace MaintTrack.Infrastructure.Migrations
                         .HasForeignKey("MachineId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("MaintTrack.Domain.MachineComponents.MachineComponent", "MachineComponent")
+                        .WithMany()
+                        .HasForeignKey("MachineComponentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("MaintTrack.Domain.Maintenance.MaintenanceType", "MaintenanceType")
                         .WithMany()
                         .HasForeignKey("MaintenanceTypeId")
@@ -1292,6 +1305,8 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("Machine");
+
+                    b.Navigation("MachineComponent");
 
                     b.Navigation("MaintenanceType");
                 });

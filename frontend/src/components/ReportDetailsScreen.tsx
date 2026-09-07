@@ -432,9 +432,13 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
       try {
         setIsLoadingTreatment(true);
         setLoadErrorTreatment(null);
-        const dto = await getTreatmentById(reportId);
+        const [dto, hierarchyData] = await Promise.all([
+          getTreatmentById(reportId),
+          getHierarchy(),
+        ]);
         if (cancelled) return;
         setTreatmentReport(dto);
+        setHierarchy(Array.isArray(hierarchyData) ? hierarchyData : []);
       } catch (err) {
         console.error(err);
         if (!cancelled) {
@@ -476,6 +480,20 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     treatmentReport?.maintenanceTypeName ??
     maintenanceTypes.find((mt) => mt.id === treatmentReport?.maintenanceTypeId)?.code;
 
+  const treatmentTypeLabel = useMemo(() => {
+    if (treatmentReport?.machineComponentNameKey) {
+      return resolveCatalogDisplayValue(treatmentReport.machineComponentNameKey, t);
+    }
+    if (treatmentMaintenanceTypeCode) {
+      return resolveCatalogDisplayValue(`maintenanceType.${treatmentMaintenanceTypeCode}`, t);
+    }
+    return '';
+  }, [
+    treatmentReport?.machineComponentNameKey,
+    treatmentMaintenanceTypeCode,
+    t,
+  ]);
+
   const maintenanceArrayLabel = useMemo(() => {
     if (!maintenanceReport?.machineId) return '';
     return resolveMaintenanceReportArrayLabel(
@@ -484,6 +502,15 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
       t
     );
   }, [hierarchy, maintenanceReport?.arrayId, maintenanceReport?.machineId, t]);
+
+  const treatmentArrayLabel = useMemo(() => {
+    if (!treatmentReport?.machineId) return '';
+    return resolveMaintenanceReportArrayLabel(
+      { arrayId: treatmentReport.arrayId, machineId: treatmentReport.machineId },
+      hierarchy,
+      t
+    );
+  }, [hierarchy, treatmentReport?.arrayId, treatmentReport?.machineId, t]);
 
   const maintenanceV2Parts = useMemo(() => {
     if (maintenanceReport?.maintenanceTypeCode !== 'other') return null;
@@ -1015,6 +1042,12 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                     </span>
                   </div>
                   <div className="flex justify-between">
+                    <span className="text-neutral-600">{t('reports.maintenanceFilters.array')}:</span>
+                    <span className="font-medium text-neutral-900">
+                      {treatmentArrayLabel || t('common.notProvided')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-neutral-600">{t('log.machine')}:</span>
                     <span className="font-medium text-neutral-900">
                       {treatmentMachine
@@ -1027,12 +1060,7 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                   <div className="flex justify-between">
                     <span className="text-neutral-600">{t('treatment.type')}:</span>
                     <span className="font-medium text-neutral-900">
-                      {treatmentMaintenanceTypeCode
-                        ? resolveCatalogDisplayValue(
-                            `maintenanceType.${treatmentMaintenanceTypeCode}`,
-                            t
-                          )
-                        : t('common.notProvided')}
+                      {treatmentTypeLabel || t('common.notProvided')}
                     </span>
                   </div>
                   <div className="flex justify-between">

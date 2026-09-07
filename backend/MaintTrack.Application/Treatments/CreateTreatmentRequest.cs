@@ -8,7 +8,7 @@ public sealed class CreateTreatmentRequest
 
     public DateOnly TreatmentDate { get; init; }
 
-    public Guid MaintenanceTypeId { get; init; }
+    public Guid MachineComponentId { get; init; }
 
     public string Description { get; init; } = string.Empty;
 
