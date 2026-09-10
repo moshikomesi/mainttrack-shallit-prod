@@ -226,10 +226,17 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
 
         if (request.MachineId.HasValue)
             query = query.Where(x => x.Entry.MachineId == request.MachineId.Value);
+
+        // MaintenanceEntry.Date is DateOnly (calendar day). Inclusive start with half-open end:
+        // FromDate <= Date < ToDate+1 day covers the full selected calendar range without timezones.
         if (request.FromDate.HasValue)
             query = query.Where(x => x.Entry.Date >= request.FromDate.Value);
         if (request.ToDate.HasValue)
-            query = query.Where(x => x.Entry.Date <= request.ToDate.Value);
+        {
+            var exclusiveEnd = request.ToDate.Value.AddDays(1);
+            query = query.Where(x => x.Entry.Date < exclusiveEnd);
+        }
+
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
             var search = request.Search.Trim();
@@ -242,8 +249,11 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
         var pageNumber = request.PageNumber < 1 ? 1 : request.PageNumber;
         var pageSize = request.PageSize < 1 ? 20 : request.PageSize;
 
+        // Newest maintenance occurrence first; CreatedAt then Id stabilize same-day ties.
         var list = await query
             .OrderByDescending(x => x.Entry.Date)
+            .ThenByDescending(x => x.Entry.CreatedAt)
+            .ThenByDescending(x => x.Entry.Id)
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
             .Select(x => new MaintenanceEntryDto(

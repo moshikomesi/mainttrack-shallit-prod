@@ -18,10 +18,17 @@ import { canSeeMorningRoundV2 } from '../auth/roles';
 import type { MorningRoundDto } from '../types/morningRound';
 import type { MaintenanceEntryDto } from '../types/maintenance';
 import type { TreatmentDto } from '../types/treatment';
-import { formatDisplayDate, formatDisplayDateTime } from '../utils/formatDate';
+import { formatDisplayDate, formatDisplayDateTime, formatFormDate } from '../utils/formatDate';
 import { formatTechnician } from '../utils/formatTechnician';
-import { resolveCatalogKey } from '../utils/resolveCatalogDisplayValue';
+import { resolveCatalogDisplayValue, resolveCatalogKey } from '../utils/resolveCatalogDisplayValue';
 import type { MorningRoundReportVariant, ReportListItem, ReportsListReturnContext, ReportsListScreenProps } from '../types/reports';
+
+function interpolate(template: string, values: Record<string, string>): string {
+  return Object.entries(values).reduce(
+    (result, [key, value]) => result.replace(`{${key}}`, value),
+    template
+  );
+}
 
 function parseMaintenanceV2Description(description: string): { component: string; details: string } | null {
   const text = description ?? '';
@@ -200,10 +207,14 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
 
   const fetchMaintenancePage = useCallback(
     async (pageNumber: number, pageSize: number) => {
+      // DateOnly calendar filter: send the selected YYYY-MM-DD as both bounds.
+      // Backend applies inclusive start / half-open next-day end on Entry.Date.
       const list = await getMaintenance({
         pageNumber,
         pageSize,
         machineId: selectedMachineId || undefined,
+        fromDate: filterDate || undefined,
+        toDate: filterDate || undefined,
         search: debouncedSearch.length >= 2 ? debouncedSearch : undefined,
       });
       const items: ReportListItem[] = (list as MaintenanceEntryDto[]).map((m) => ({
@@ -218,7 +229,7 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
       }));
       return { items };
     },
-    [debouncedSearch, selectedMachineId]
+    [debouncedSearch, selectedMachineId, filterDate]
   );
 
   const fetchTreatmentsPage = useCallback(
@@ -243,7 +254,7 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
   const maintenanceScroll = useInfiniteScroll<ReportListItem>({
     fetchPage: fetchMaintenancePage,
     pageSize: 20,
-    resetKey: `${debouncedSearch}|${selectedArrayId}|${selectedMachineId}|${selectedComponentKey}`,
+    resetKey: `${debouncedSearch}|${selectedArrayId}|${selectedMachineId}|${selectedComponentKey}|${filterDate}`,
     enabled: selectedType === 'maintenance',
   });
 
@@ -263,8 +274,13 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
           ? treatmentsScroll.items
           : [];
 
+  // Morning/treatments still use client-side date filtering (unchanged).
+  // Maintenance date filtering is server-side via fromDate/toDate (see fetchMaintenancePage).
   const filteredReports = filterDate
-    ? reports.filter((r) => r.date === filterDate)
+    ? reports.filter((r) => {
+        if (selectedType === 'maintenance') return true;
+        return r.date === filterDate || r.date.startsWith(`${filterDate}T`) || r.date.startsWith(`${filterDate} `);
+      })
     : reports;
 
   const activeArrays = useMemo(
@@ -581,6 +597,7 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                 />
                 {filterDate && (
                   <button
+                    type="button"
                     onClick={() => setFilterDate('')}
                     className="mt-2 text-xs text-neutral-600 hover:text-neutral-900"
                   >
@@ -588,6 +605,28 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                   </button>
                 )}
               </div>
+
+              {selectedType === 'maintenance' && (
+                <div
+                  className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 space-y-0.5"
+                  role="status"
+                >
+                  <div className="font-medium text-neutral-900">
+                    {filterDate
+                      ? interpolate(t('reports.filteredDay'), {
+                          date: formatFormDate(language, filterDate),
+                        })
+                      : t('reports.allRecords')}
+                  </div>
+                  <div className="text-xs text-neutral-600">
+                    {t('reports.latestFirst')}
+                    {' · '}
+                    {interpolate(t('reports.loadedCount'), {
+                      count: String(filteredMaintenanceReports.length),
+                    })}
+                  </div>
+                </div>
+              )}
 
               {(selectedType === 'maintenance' || selectedType === 'treatments') && (
                 <div>
@@ -686,26 +725,71 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                   }}
                   className="w-full bg-white border border-neutral-200 rounded-lg p-4 text-start hover:bg-neutral-50 active:bg-neutral-100 transition-colors touch-manipulation"
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="text-sm font-semibold text-neutral-900">
-                      {formatDisplayDate(language, report.date)}
+                  {selectedType === 'maintenance' ? (
+                    <div className="space-y-2">
+                      <div className="text-base font-semibold text-neutral-900 leading-tight">
+                        {formatDisplayDate(language, report.date, 'long')}
+                      </div>
+                      <div className="text-sm text-neutral-700">
+                        {(() => {
+                          const parsed =
+                            report.maintenanceTypeCode === 'other' && report.description
+                              ? parseMaintenanceV2Description(report.description)
+                              : null;
+                          if (parsed) {
+                            return (
+                              <>
+                                <span className="font-medium text-neutral-900">
+                                  {resolveCatalogDisplayValue(parsed.component, t)}
+                                </span>
+                                {parsed.details ? (
+                                  <span className="text-neutral-600"> — {parsed.details}</span>
+                                ) : null}
+                              </>
+                            );
+                          }
+                          return (
+                            <span className="text-neutral-700 line-clamp-2">
+                              {report.description ||
+                                (report.maintenanceTypeCode
+                                  ? t(`maintenanceType.${report.maintenanceTypeCode}`)
+                                  : t('reports.maintenanceLog'))}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <div className="text-sm text-neutral-600">
+                        {t('reports.submittedBy')}:{' '}
+                        <span className="font-medium text-neutral-900">{report.submittedBy}</span>
+                      </div>
+                      <div className="text-xs text-neutral-500">
+                        {t('details.submittedOn')}: {formatDisplayDateTime(language, report.submittedAt)}
+                      </div>
                     </div>
-                    <div className="px-2 py-0.5 bg-teal-100 text-teal-800 rounded text-xs font-medium">
-                      {t('common.submitted')}
-                    </div>
-                  </div>
-                  <div className="text-sm text-neutral-600 mb-1">
-                    {selectedType === 'treatments' ? t('common.technician') : t('reports.submittedBy')}:{' '}
-                    <span className="font-medium text-neutral-900">
-                      {selectedType === 'treatments'
-                        ? formatTechnician(t, report.submittedBy)
-                        : report.submittedBy}
-                    </span>
-                  </div>
-                  {selectedType === 'morning' && (
-                    <div className="text-xs text-neutral-500">
-                      {t('details.submittedOn')}: {formatDisplayDateTime(language, report.submittedAt)}
-                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="text-sm font-semibold text-neutral-900">
+                          {formatDisplayDate(language, report.date)}
+                        </div>
+                        <div className="px-2 py-0.5 bg-teal-100 text-teal-800 rounded text-xs font-medium">
+                          {t('common.submitted')}
+                        </div>
+                      </div>
+                      <div className="text-sm text-neutral-600 mb-1">
+                        {selectedType === 'treatments' ? t('common.technician') : t('reports.submittedBy')}:{' '}
+                        <span className="font-medium text-neutral-900">
+                          {selectedType === 'treatments'
+                            ? formatTechnician(t, report.submittedBy)
+                            : report.submittedBy}
+                        </span>
+                      </div>
+                      {selectedType === 'morning' && (
+                        <div className="text-xs text-neutral-500">
+                          {t('details.submittedOn')}: {formatDisplayDateTime(language, report.submittedAt)}
+                        </div>
+                      )}
+                    </>
                   )}
                 </button>
               ))}

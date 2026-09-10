@@ -224,6 +224,18 @@ export const translations: Record<string, Record<Language, string>> = {
   // Reports List
   'reports.title': { en: 'View Reports', he: 'צפה בדוחות', th: 'ดูรายงาน' },
   'reports.filterByDate': { en: 'Filter by Date', he: 'סנן לפי תאריך', th: 'กรองตามวันที่' },
+  'reports.latestFirst': { en: 'Latest first', he: 'החדשים ביותר קודם', th: 'ล่าสุดก่อน' },
+  'reports.allRecords': { en: 'All records', he: 'כל הרשומות', th: 'ทุกรายการ' },
+  'reports.filteredDay': {
+    en: 'Showing {date}',
+    he: 'מציג {date}',
+    th: 'แสดง {date}',
+  },
+  'reports.loadedCount': {
+    en: '{count} loaded',
+    he: '{count} נטענו',
+    th: 'โหลดแล้ว {count}',
+  },
   'reports.year': { en: 'Year', he: 'שנה', th: 'ปี' },
   'reports.morningRound': { en: 'Morning Round Reports', he: 'דוחות סיבוב בוקר', th: 'รายงานรอบเช้า' },
   'reports.morningRoundV1': { en: 'Morning Round (legacy)', he: 'סיבוב בוקר (ישן)', th: 'รอบเช้า (ישן)' },
