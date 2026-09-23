@@ -12,8 +12,15 @@ public static class MachineParameterPhotoEndpoints
                 IMachineParameterPhotoService photoService,
                 CancellationToken cancellationToken) =>
             {
-                var hierarchy = await photoService.GetHierarchyAsync(cancellationToken);
-                return Results.Ok(hierarchy);
+                try
+                {
+                    var hierarchy = await photoService.GetHierarchyAsync(cancellationToken);
+                    return Results.Ok(hierarchy);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
             })
             .RequireRateLimiting("api")
             .RequireAuthorization()
@@ -30,8 +37,16 @@ public static class MachineParameterPhotoEndpoints
                     return Results.BadRequest(new { error = "machineId is required." });
                 }
 
-                var photos = await photoService.GetByMachineIdAsync(machineId.Value, cancellationToken);
-                return Results.Ok(photos);
+                try
+                {
+                    var photos = await photoService.GetByMachineIdAsync(machineId.Value, cancellationToken);
+                    return Results.Ok(photos);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // Covers inaccessible / cross-tenant / hidden / inactive / unassigned machines.
+                    return Results.BadRequest(new { error = ex.Message });
+                }
             })
             .RequireRateLimiting("api")
             .RequireAuthorization()
@@ -52,6 +67,12 @@ public static class MachineParameterPhotoEndpoints
                 catch (UnauthorizedAccessException)
                 {
                     return Results.Forbid();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // Multipart/request parsing + service validation/access failures
+                    // (empty/unsupported/oversized/too many files, inaccessible machines, etc.).
+                    return Results.BadRequest(new { error = ex.Message });
                 }
             })
             .RequireRateLimiting("api")
@@ -77,6 +98,10 @@ public static class MachineParameterPhotoEndpoints
                 catch (KeyNotFoundException)
                 {
                     return Results.NotFound();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
                 }
             })
             .RequireRateLimiting("api")

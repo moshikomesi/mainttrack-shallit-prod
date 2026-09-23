@@ -37,6 +37,7 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
     private readonly Guid _hiddenArrayId = Guid.NewGuid();
     private readonly Guid _visibleMachineId = Guid.NewGuid();
     private readonly Guid _hiddenMachineId = Guid.NewGuid();
+    private readonly Guid _inactiveMachineId = Guid.NewGuid();
     private readonly Guid _unassignedMachineId = Guid.NewGuid();
     private readonly Guid _otherMachineId = Guid.NewGuid();
     private readonly Guid _photoId = Guid.NewGuid();
@@ -161,6 +162,16 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
                 Code = "H1",
                 ArrayId = _hiddenArrayId,
                 IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            },
+            new Machine
+            {
+                Id = _inactiveMachineId,
+                TenantId = _tenantId,
+                Name = "machine.inactive",
+                Code = "I1",
+                ArrayId = _visibleArrayId,
+                IsActive = false,
                 CreatedAt = DateTime.UtcNow
             },
             new Machine
@@ -292,6 +303,84 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_InaccessibleHiddenInactiveAndUnassignedMachines_Return400()
+    {
+        var unknown = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        Assert.Contains("Machine not found.", await unknown.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        var hidden = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_hiddenMachineId}");
+        Assert.Equal(HttpStatusCode.BadRequest, hidden.StatusCode);
+
+        var inactive = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_inactiveMachineId}");
+        Assert.Equal(HttpStatusCode.BadRequest, inactive.StatusCode);
+
+        var unassigned = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_unassignedMachineId}");
+        Assert.Equal(HttpStatusCode.BadRequest, unassigned.StatusCode);
+    }
+
+    [Fact]
+    public async Task Upload_InvalidFiles_Return400()
+    {
+        await GrantManagerAsync();
+
+        var unsupported = await _client.PostAsync(
+            "/api/v1/machine-parameter-photos",
+            CreateFileForm(_visibleMachineId, "image/gif", "photo.gif", new byte[] { 1, 2, 3, 4 }));
+        Assert.Equal(HttpStatusCode.BadRequest, unsupported.StatusCode);
+        Assert.Contains("Invalid file type.", await unsupported.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        var empty = await _client.PostAsync(
+            "/api/v1/machine-parameter-photos",
+            CreateFileForm(_visibleMachineId, "image/jpeg", "empty.jpg", Array.Empty<byte>()));
+        Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
+        Assert.Contains("Uploaded files cannot be empty.", await empty.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        var tooMany = new MultipartFormDataContent
+        {
+            { new StringContent(_visibleMachineId.ToString()), "machineId" }
+        };
+        for (var i = 0; i < 11; i++)
+        {
+            var file = new ByteArrayContent(new byte[] { 1, 2, 3, 4 });
+            file.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+            tooMany.Add(file, "files", $"photo-{i}.jpg");
+        }
+
+        var tooManyResponse = await _client.PostAsync("/api/v1/machine-parameter-photos", tooMany);
+        Assert.Equal(HttpStatusCode.BadRequest, tooManyResponse.StatusCode);
+        Assert.Contains(
+            "A maximum of 10 files is allowed.",
+            await tooManyResponse.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+
+        Assert.Empty(_storage.UploadedUrls);
+    }
+
+    [Fact]
+    public async Task Upload_InaccessibleHiddenAndInactiveMachines_Return400()
+    {
+        await GrantManagerAsync();
+
+        var inaccessible = await _client.PostAsync(
+            "/api/v1/machine-parameter-photos",
+            CreateJpegForm(Guid.NewGuid()));
+        Assert.Equal(HttpStatusCode.BadRequest, inaccessible.StatusCode);
+
+        var hidden = await _client.PostAsync(
+            "/api/v1/machine-parameter-photos",
+            CreateJpegForm(_hiddenMachineId));
+        Assert.Equal(HttpStatusCode.BadRequest, hidden.StatusCode);
+
+        var inactive = await _client.PostAsync(
+            "/api/v1/machine-parameter-photos",
+            CreateJpegForm(_inactiveMachineId));
+        Assert.Equal(HttpStatusCode.BadRequest, inactive.StatusCode);
+
+        Assert.Empty(_storage.UploadedUrls);
+    }
+
+    [Fact]
     public async Task PostAndDelete_WithoutManager_Return403()
     {
         var post = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_visibleMachineId));
@@ -378,13 +467,20 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         _client.DefaultRequestHeaders.Add("Cookie", $"{AuthCookie.Name}={token}");
     }
 
-    private static MultipartFormDataContent CreateJpegForm(Guid machineId)
+    private static MultipartFormDataContent CreateJpegForm(Guid machineId) =>
+        CreateFileForm(machineId, "image/jpeg", "photo.jpg", new byte[] { 1, 2, 3, 4 });
+
+    private static MultipartFormDataContent CreateFileForm(
+        Guid machineId,
+        string contentType,
+        string fileName,
+        byte[] bytes)
     {
         var content = new MultipartFormDataContent();
         content.Add(new StringContent(machineId.ToString()), "machineId");
-        var file = new ByteArrayContent(new byte[] { 1, 2, 3, 4 });
-        file.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
-        content.Add(file, "files", "photo.jpg");
+        var file = new ByteArrayContent(bytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        content.Add(file, "files", fileName);
         return content;
     }
 }
