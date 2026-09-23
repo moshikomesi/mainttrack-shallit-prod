@@ -81,6 +81,11 @@ export const translations: Record<string, Record<Language, string>> = {
     he: 'יומן אחזקה',
     th: 'บันทึกการบำรุงรักษา',
   },
+  'home.machineParameterPhotos': {
+    en: 'Machine Parameters',
+    he: 'פרמטרי מכונה',
+    th: 'พารามิเตอร์เครื่องจักร',
+  },
   'home.maintenanceTasksLog': {
     en: 'Maintenance Tasks Log',
     he: 'יומן משימות',
@@ -713,6 +718,51 @@ export const translations: Record<string, Record<Language, string>> = {
 
   'array.conveyors': { en: 'Conveyors', he: 'מסועים', th: 'สายพานลำเลียง' },
   'machine.conveyors.general': { en: 'Conveyors', he: 'מסועים', th: 'สายพานลำเลียง' },
+
+  'machineParameterPhotos.addPhotos': { en: 'Add Photos', he: 'הוסף תמונות', th: 'เพิ่มรูปภาพ' },
+  'machineParameterPhotos.deletePhoto': { en: 'Delete Photo', he: 'מחק תמונה', th: 'ลบรูปภาพ' },
+  'machineParameterPhotos.empty': {
+    en: 'No parameter photos have been uploaded for this machine yet.',
+    he: 'עדיין לא הועלו תמונות פרמטר למכונה זו.',
+    th: 'ยังไม่มีรูปพารามิเตอร์สำหรับเครื่องจักรนี้',
+  },
+  'machineParameterPhotos.uploading': { en: 'Uploading…', he: 'מעלה…', th: 'กำลังอัปโหลด…' },
+  'machineParameterPhotos.uploadSuccess': {
+    en: 'Photos uploaded successfully',
+    he: 'התמונות הועלו בהצלחה',
+    th: 'อัปโหลดรูปภาพสำเร็จ',
+  },
+  'machineParameterPhotos.deleteSuccess': { en: 'Photo deleted', he: 'התמונה נמחקה', th: 'ลบรูปภาพแล้ว' },
+  'machineParameterPhotos.uploadFailed': {
+    en: 'Failed to upload photos',
+    he: 'העלאת התמונות נכשלה',
+    th: 'อัปโหลดรูปภาพไม่สำเร็จ',
+  },
+  'machineParameterPhotos.deleteFailed': {
+    en: 'Failed to delete photo',
+    he: 'מחיקת התמונה נכשלה',
+    th: 'ลบรูปภาพไม่สำเร็จ',
+  },
+  'machineParameterPhotos.confirmDelete': {
+    en: 'Delete this photo?',
+    he: 'למחוק תמונה זו?',
+    th: 'ลบรูปนี้หรือไม่?',
+  },
+  'machineParameterPhotos.tooManyFiles': {
+    en: 'You can upload up to 10 photos at a time',
+    he: 'ניתן להעלות עד 10 תמונות בכל פעם',
+    th: 'อัปโหลดได้สูงสุด 10 รูปต่อครั้ง',
+  },
+  'machineParameterPhotos.emptyFile': {
+    en: 'Uploaded files cannot be empty',
+    he: 'לא ניתן להעלות קבצים ריקים',
+    th: 'ไฟล์ที่อัปโหลดต้องไม่ว่างเปล่า',
+  },
+  'machineParameterPhotos.photoAlt': {
+    en: 'Machine parameter photo',
+    he: 'תמונת פרמטר מכונה',
+    th: 'รูปพารามิเตอร์เครื่องจักร',
+  },
 
 };
 

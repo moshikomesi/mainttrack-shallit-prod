@@ -1,10 +1,11 @@
 import { useNavigate } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
-import { ArrowLeft, LogOut } from 'lucide-react';
+import { ArrowLeft, LogOut, type LucideIcon } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
 type Props = {
   title: string;
+  titleIcon?: LucideIcon;
   showBack?: boolean;
   showHome?: boolean;
   showLogout?: boolean;
@@ -12,7 +13,11 @@ type Props = {
   onBack?: () => void;
 };
 
-export function AppHeader({ title, showBack, showHome, showLogout, onLogout, onBack }: Props) {
+const titleIconBoxStyle = {
+  backgroundColor: '#eab308',
+};
+
+export function AppHeader({ title, titleIcon: TitleIcon, showBack, showHome, showLogout, onLogout, onBack }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isRTL, language, setLanguage, t } = useLanguage();
@@ -52,7 +57,18 @@ export function AppHeader({ title, showBack, showHome, showLogout, onLogout, onB
         </div>
 
         {/* Center */}
-        <h1 className="text-lg font-semibold text-center flex-1">{title}</h1>
+        <div className="flex-1 flex items-center justify-center gap-2 min-w-0">
+          {TitleIcon && (
+            <span
+              className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
+              style={titleIconBoxStyle}
+              aria-hidden
+            >
+              <TitleIcon className="w-4 h-4 text-white" />
+            </span>
+          )}
+          <h1 className="text-lg font-semibold text-center truncate">{title}</h1>
+        </div>
 
         {/* Right */}
         <div className="flex items-center gap-2">
