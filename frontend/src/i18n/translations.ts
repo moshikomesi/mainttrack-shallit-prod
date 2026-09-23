@@ -83,7 +83,7 @@ export const translations: Record<string, Record<Language, string>> = {
   },
   'home.machineParameterPhotos': {
     en: 'Machine Parameters',
-    he: 'פרמטרי מכונה',
+    he: 'פרמטרים של מכונות',
     th: 'พารามิเตอร์เครื่องจักร',
   },
   'home.maintenanceTasksLog': {

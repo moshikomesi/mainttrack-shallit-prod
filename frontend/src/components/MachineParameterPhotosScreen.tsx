@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import toast from 'react-hot-toast';
-import { ChevronLeft, ChevronRight, Images, Loader2, RefreshCw, SlidersHorizontal, Trash2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Images, Loader2, RefreshCw, Trash2, X } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { AppHeader } from './AppHeader';
 import { ImageWithFallback } from './figma/ImageWithFallback';
@@ -498,13 +498,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
 
   return (
     <div className="min-h-screen bg-neutral-50 pb-24">
-      <AppHeader
-        title={t('home.machineParameterPhotos')}
-        titleIcon={SlidersHorizontal}
-        showBack={true}
-        showHome={true}
-        onBack={onBack}
-      />
+      <AppHeader title={t('home.machineParameterPhotos')} showBack={true} showHome={true} onBack={onBack} />
 
       <div className="p-4 space-y-4">
         {hierarchyError && !loadingHierarchy && (
