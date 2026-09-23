@@ -4,6 +4,7 @@ using MaintTrack.Domain.Audit;
 using MaintTrack.Domain.Forklifts;
 using MaintTrack.Domain.Machines;
 using MaintTrack.Domain.MachineComponents;
+using MaintTrack.Domain.MachineParameterPhotos;
 using MaintTrack.Domain.Maintenance;
 using MaintTrack.Domain.MaintenanceTasks;
 using MaintTrack.Domain.MorningRound;
@@ -42,6 +43,12 @@ public class MaintTrackDbContext : DbContext
     public DbSet<MachineComponentMapping> MachineComponentMappings => Set<MachineComponentMapping>();
 
     public DbSet<WorkGroup> Arrays => Set<WorkGroup>();
+
+    public DbSet<ArrayFeatureVisibility> ArrayFeatureVisibilities => Set<ArrayFeatureVisibility>();
+
+    public DbSet<MachineParameterPhoto> MachineParameterPhotos => Set<MachineParameterPhoto>();
+
+    public DbSet<MachineParameterPhotoManager> MachineParameterPhotoManagers => Set<MachineParameterPhotoManager>();
 
     public DbSet<MorningRoundReport> MorningRoundReports => Set<MorningRoundReport>();
 
@@ -93,8 +100,10 @@ public class MaintTrackDbContext : DbContext
         ConfigureUsers(modelBuilder);
         ConfigureRoles(modelBuilder);
         ConfigureArrays(modelBuilder);
+        ConfigureArrayFeatureVisibility(modelBuilder);
         ConfigureMachines(modelBuilder);
         ConfigureMachineComponents(modelBuilder);
+        ConfigureMachineParameterPhotos(modelBuilder);
         ConfigureMorningRoundReport(modelBuilder);
         ConfigureMorningRoundTemplateItem(modelBuilder);
         ConfigureMorningRoundV2Submission(modelBuilder);
@@ -267,6 +276,50 @@ public class MaintTrackDbContext : DbContext
         entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
+    private void ConfigureArrayFeatureVisibility(ModelBuilder modelBuilder)
+    {
+        var entity = modelBuilder.Entity<ArrayFeatureVisibility>();
+
+        entity.ToTable("array_feature_visibility");
+
+        entity.HasKey(x => x.Id);
+
+        entity.Property(x => x.Id)
+            .HasColumnName("id");
+
+        entity.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        entity.Property(x => x.ArrayId)
+            .HasColumnName("array_id")
+            .IsRequired();
+
+        entity.Property(x => x.FeatureKey)
+            .HasColumnName("feature_key")
+            .IsRequired();
+
+        entity.Property(x => x.IsVisible)
+            .HasColumnName("is_visible")
+            .IsRequired();
+
+        entity.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        entity.Ignore(x => x.UpdatedAt);
+
+        entity.HasIndex(x => new { x.TenantId, x.ArrayId, x.FeatureKey })
+            .IsUnique();
+
+        entity.HasOne(x => x.Array)
+            .WithMany()
+            .HasForeignKey(x => x.ArrayId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+    }
+
     private void ConfigureMachines(ModelBuilder modelBuilder)
     {
         var entity = modelBuilder.Entity<Machine>();
@@ -419,6 +472,89 @@ public class MaintTrackDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
 
         mapping.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+    }
+
+    private void ConfigureMachineParameterPhotos(ModelBuilder modelBuilder)
+    {
+        var photo = modelBuilder.Entity<MachineParameterPhoto>();
+
+        photo.ToTable("machine_parameter_photos");
+
+        photo.HasKey(x => x.Id);
+
+        photo.Property(x => x.Id)
+            .HasColumnName("id");
+
+        photo.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        photo.Property(x => x.MachineId)
+            .HasColumnName("machine_id")
+            .IsRequired();
+
+        photo.Property(x => x.ImageUrl)
+            .HasColumnName("image_url")
+            .IsRequired();
+
+        photo.Property(x => x.SortOrder)
+            .HasColumnName("sort_order")
+            .IsRequired();
+
+        photo.Property(x => x.CreatedByUserId)
+            .HasColumnName("created_by_user_id")
+            .IsRequired();
+
+        photo.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        photo.Ignore(x => x.UpdatedAt);
+
+        photo.HasIndex(x => new { x.TenantId, x.MachineId });
+
+        photo.HasIndex(x => new { x.MachineId, x.SortOrder })
+            .IsUnique();
+
+        photo.HasOne(x => x.Machine)
+            .WithMany()
+            .HasForeignKey(x => x.MachineId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        photo.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+
+        var manager = modelBuilder.Entity<MachineParameterPhotoManager>();
+
+        manager.ToTable("machine_parameter_photo_managers");
+
+        manager.HasKey(x => x.Id);
+
+        manager.Property(x => x.Id)
+            .HasColumnName("id");
+
+        manager.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        manager.Property(x => x.UserId)
+            .HasColumnName("user_id")
+            .IsRequired();
+
+        manager.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        manager.Ignore(x => x.UpdatedAt);
+
+        manager.HasIndex(x => new { x.TenantId, x.UserId })
+            .IsUnique();
+
+        manager.HasOne(x => x.User)
+            .WithMany()
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        manager.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
     private void ConfigureMorningRoundReport(ModelBuilder modelBuilder)
