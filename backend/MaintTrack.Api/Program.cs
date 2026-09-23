@@ -32,7 +32,9 @@ using MaintTrack.Application.Reports.ForkliftReports;
 using MaintTrack.Application.Reports.MaintenanceTasks;
 using MaintTrack.Application.Treatments;
 using MaintTrack.Application.AnnualPlans;
+using MaintTrack.Application.MachineParameterPhotos;
 using MaintTrack.Infrastructure.Forklifts;
+using MaintTrack.Infrastructure.MachineParameterPhotos;
 using MaintTrack.Infrastructure.Maintenance;
 using MaintTrack.Infrastructure.MachineComponents;
 using MaintTrack.Infrastructure.MaintenanceTasks;
@@ -110,6 +112,7 @@ builder.Services.AddScoped<
 
 builder.Services.AddScoped<IMaintenanceTypeService, MaintTrack.Infrastructure.Maintenance.MaintenanceTypeService>();
 builder.Services.AddScoped<IMachineComponentService, MachineComponentService>();
+builder.Services.AddScoped<IMachineParameterPhotoService, MachineParameterPhotoService>();
 builder.Services.AddScoped<IMaintenanceTasksRepository, MaintenanceTasksRepository>();
 builder.Services.AddScoped<IMaintenanceTasksService, MaintenanceTasksService>();
 
@@ -350,6 +353,7 @@ app.MapGet("/health", async (MaintTrackDbContext dbContext) =>
 app.MapAuth();
 app.MapMachines();
 app.MapHierarchyEndpoints();
+app.MapMachineParameterPhotoEndpoints();
 app.MapMorningRoundEndpoints();
 app.MapMorningRoundV2Endpoints();
 app.MapMaintenanceEntryEndpoints();

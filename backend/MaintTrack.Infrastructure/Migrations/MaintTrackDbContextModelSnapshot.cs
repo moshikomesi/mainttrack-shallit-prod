@@ -472,6 +472,44 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.ToTable("forklift_treatments", (string)null);
                 });
 
+            modelBuilder.Entity("MaintTrack.Domain.Arrays.ArrayFeatureVisibility", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ArrayId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("array_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FeatureKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("feature_key");
+
+                    b.Property<bool>("IsVisible")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_visible");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArrayId");
+
+                    b.HasIndex("TenantId", "ArrayId", "FeatureKey")
+                        .IsUnique();
+
+                    b.ToTable("array_feature_visibility", (string)null);
+                });
+
             modelBuilder.Entity("MaintTrack.Domain.Arrays.WorkGroup", b =>
                 {
                     b.Property<Guid>("Id")
@@ -661,6 +699,77 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.HasIndex("TenantId", "MachineId");
 
                     b.ToTable("machine_component_mappings", (string)null);
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.MachineParameterPhotos.MachineParameterPhoto", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("image_url");
+
+                    b.Property<Guid>("MachineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("machine_id");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MachineId", "SortOrder")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "MachineId");
+
+                    b.ToTable("machine_parameter_photos", (string)null);
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.MachineParameterPhotos.MachineParameterPhotoManager", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("machine_parameter_photo_managers", (string)null);
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntry", b =>
@@ -1136,6 +1245,17 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("MaintTrack.Domain.Arrays.ArrayFeatureVisibility", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Arrays.WorkGroup", "Array")
+                        .WithMany()
+                        .HasForeignKey("ArrayId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Array");
+                });
+
             modelBuilder.Entity("MaintTrack.Domain.AnnualPlans.AnnualPlanItem", b =>
                 {
                     b.HasOne("MaintTrack.Domain.AnnualPlans.AnnualPlan", "Plan")
@@ -1278,6 +1398,28 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.Navigation("Component");
 
                     b.Navigation("Machine");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.MachineParameterPhotos.MachineParameterPhoto", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Machines.Machine", "Machine")
+                        .WithMany()
+                        .HasForeignKey("MachineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Machine");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.MachineParameterPhotos.MachineParameterPhotoManager", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Users.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.Treatments.Treatment", b =>
