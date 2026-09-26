@@ -24,6 +24,7 @@ explicitly noted otherwise. For the full step-by-step deployment runbook, see
 | 9 | `production-forklift-inspection-columns.sql` | **None — see below** | Schema |
 | 10 | `production-machine-components-complete.sql` | **None — data completion, see below** | Data |
 | 11 | `production-maintenance-entry-images.sql` | `AddMaintenanceEntryImages` | Schema |
+| 12 | `production-machine-parameter-photos.sql` | `AddMachineParameterPhotos` | Schema |
 
 Run in this exact order — later scripts depend on tables/columns created by
 earlier ones (each script also states its own prerequisites in its header).

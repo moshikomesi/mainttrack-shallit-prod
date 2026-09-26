@@ -19,6 +19,7 @@ import { ReportsListScreen } from './components/ReportsListScreen';
 import { ReportDetailsScreen } from './components/ReportDetailsScreen';
 import type { ReportType, ReportsListReturnContext } from './types/reports';
 import { SettingsScreen } from './components/SettingsScreen';
+import { MachineParameterPhotosScreen } from './components/MachineParameterPhotosScreen';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
 
 const screenIdToPath: Record<string, string> = {
@@ -28,6 +29,7 @@ const screenIdToPath: Record<string, string> = {
   // Log takes over the canonical "/maintenance" path once enabled per user.
   maintenanceLog: '/maintenance-v1',
   maintenanceLogV2: '/maintenance',
+  machineParameterPhotos: '/machine-parameter-photos',
   maintenanceTasksLog: '/maintenance-tasks',
   treatments: '/treatments',
   forklift: '/forklift',
@@ -181,6 +183,16 @@ function AppRoutes() {
                 onBack={() => navigate('/home')}
                 onSubmit={handleReportSubmitted}
               />
+            )
+          }
+        />
+        <Route
+          path="/machine-parameter-photos"
+          element={
+            !isLoggedIn ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <MachineParameterPhotosScreen onBack={() => navigate('/home')} />
             )
           }
         />

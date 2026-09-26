@@ -1,8 +1,18 @@
+import type { CSSProperties } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { ClipboardCheck, ClipboardList, FileText, Truck, List, Calendar, Droplets } from 'lucide-react';
+import { ClipboardCheck, ClipboardList, FileText, SlidersHorizontal, Truck, List, Calendar, Droplets, type LucideIcon } from 'lucide-react';
 import { AppHeader } from './AppHeader';
 
 import { canSeeForklift, canSeeMaintenance, canSeeMorningRound, canSeeReports, canSeeTreatments, canSeeAnnualPlans } from '../auth/roles';
+
+type HomeMenuItem = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  color: string;
+  iconBoxStyle?: CSSProperties;
+  visible: boolean;
+};
 
 interface HomeScreenProps {
   onNavigate: (screen: string) => void;
@@ -25,7 +35,7 @@ export function HomeScreen({
 
   // Single menu entry per feature; the feature flag decides which screen (legacy vs
   // new) the user is routed to. Never show both a v1 and v2 entry at once.
-  const morningRoundMenuItem = canSeeMorningRound(userRoleId)
+  const morningRoundMenuItem: HomeMenuItem | null = canSeeMorningRound(userRoleId)
     ? {
         id: enableNewMorningRound ? 'morningRoundV2' : 'morningRound',
         label: enableNewMorningRound ? t('home.morningRoundV2') : t('home.morningRound'),
@@ -35,7 +45,7 @@ export function HomeScreen({
       }
     : null;
 
-  const maintenanceLogMenuItem = canSeeMaintenance(userRoleId)
+  const maintenanceLogMenuItem: HomeMenuItem | null = canSeeMaintenance(userRoleId)
     ? {
         id: enableNewMaintenanceLog ? 'maintenanceLogV2' : 'maintenanceLog',
         label: enableNewMaintenanceLog ? t('home.maintenanceLogV2') : t('home.maintenanceLog'),
@@ -45,9 +55,17 @@ export function HomeScreen({
       }
     : null;
 
-  const menuItems = [
+  const menuItems: HomeMenuItem[] = [
     ...(morningRoundMenuItem ? [morningRoundMenuItem] : []),
     ...(maintenanceLogMenuItem ? [maintenanceLogMenuItem] : []),
+    {
+      id: 'machineParameterPhotos',
+      label: t('home.machineParameterPhotos'),
+      icon: SlidersHorizontal,
+      color: 'bg-amber-700',
+      iconBoxStyle: { backgroundColor: '#eab308' },
+      visible: canSeeMaintenance(userRoleId),
+    },
     {
       id: 'maintenanceTasksLog',
       label: t('home.maintenanceTasksLog'),
@@ -101,7 +119,10 @@ export function HomeScreen({
               onClick={() => onNavigate(item.id)}
               className="w-full bg-white border border-neutral-200 rounded-lg p-6 flex items-center gap-4 hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
             >
-              <div className={`${item.color} w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0`}>
+              <div
+                className={`${item.color} w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0`}
+                style={item.iconBoxStyle}
+              >
                 <Icon className="w-6 h-6 text-white" />
               </div>
               <span className="text-lg font-medium text-neutral-900">
