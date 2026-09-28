@@ -11,7 +11,9 @@ export function buildMaintenanceLogV2Description(
   const lines: string[] = [];
 
   if (component.kind === 'other') {
-    lines.push(component.text.trim());
+    // Empty free-text still needs a non-empty first line for type "other".
+    // Store the catalog key so reports localize it like mapped components.
+    lines.push(component.text.trim() || 'maintenanceComponent.other');
   } else {
     // Store the translation key (not the localized label) so report viewers can
     // render the component in the user's current language.
