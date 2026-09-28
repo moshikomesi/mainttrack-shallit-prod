@@ -720,6 +720,8 @@ export const translations: Record<string, Record<Language, string>> = {
   'machine.conveyors.general': { en: 'Conveyors', he: 'מסועים', th: 'สายพานลำเลียง' },
 
   'machineParameterPhotos.addPhotos': { en: 'Add Photos', he: 'הוסף תמונות', th: 'เพิ่มรูปภาพ' },
+  'machineParameterPhotos.takePhoto': { en: 'Take Photo', he: 'צלם תמונה', th: 'ถ่ายภาพ' },
+  'machineParameterPhotos.choosePhotos': { en: 'Choose Photos', he: 'בחר תמונות', th: 'เลือกรูปภาพ' },
   'machineParameterPhotos.deletePhoto': { en: 'Delete Photo', he: 'מחק תמונה', th: 'ลบรูปภาพ' },
   'machineParameterPhotos.empty': {
     en: 'No parameter photos have been uploaded for this machine yet.',
