@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import toast from 'react-hot-toast';
-import { ChevronLeft, ChevronRight, Images, Loader2, RefreshCw, Trash2, X } from 'lucide-react';
+import { Camera, ChevronLeft, ChevronRight, Images, Loader2, RefreshCw, Trash2, X } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { AppHeader } from './AppHeader';
 import { ImageWithFallback } from './figma/ImageWithFallback';
@@ -191,7 +191,8 @@ const modalYesButtonStyle: CSSProperties = {
 
 export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosScreenProps) {
   const { t } = useLanguage();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
   const uploadingRef = useRef(false);
   const viewerTriggerRef = useRef<HTMLElement | null>(null);
@@ -463,8 +464,11 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
       if (mountedRef.current) {
         setUploading(false);
       }
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+      if (cameraInputRef.current) {
+        cameraInputRef.current.value = '';
+      }
+      if (galleryInputRef.current) {
+        galleryInputRef.current.value = '';
       }
     }
   };
@@ -664,34 +668,63 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
 
             {canManage && !loadingPhotos && !photosError && (
               <div className="space-y-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  multiple
-                  style={{ display: 'none' }}
-                  onChange={(event) => {
-                    void handleFilesSelected(event.target.files);
-                  }}
-                />
-                <button
-                  type="button"
-                  disabled={uploading || Boolean(deletingPhotoId)}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-neutral-800 text-white text-sm font-medium rounded-lg hover:bg-neutral-900 active:bg-neutral-950 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {uploading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      {t('machineParameterPhotos.uploading')}
-                    </>
-                  ) : (
-                    <>
-                      <Images className="w-4 h-4" />
-                      {t('machineParameterPhotos.addPhotos')}
-                    </>
-                  )}
-                </button>
+                {/* Native file inputs must stay display:none — browsers paint "No file chosen" otherwise. */}
+                <div className="hidden" aria-hidden="true">
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    capture="environment"
+                    tabIndex={-1}
+                    style={{ display: 'none' }}
+                    onChange={(event) => {
+                      void handleFilesSelected(event.target.files);
+                    }}
+                  />
+                  <input
+                    ref={galleryInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    tabIndex={-1}
+                    style={{ display: 'none' }}
+                    onChange={(event) => {
+                      void handleFilesSelected(event.target.files);
+                    }}
+                  />
+                </div>
+
+                {uploading ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-neutral-800 text-white text-sm font-medium rounded-lg opacity-50 cursor-not-allowed"
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {t('machineParameterPhotos.uploading')}
+                  </button>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={Boolean(deletingPhotoId)}
+                      onClick={() => cameraInputRef.current?.click()}
+                      className="inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-neutral-800 text-white text-sm font-medium rounded-lg hover:bg-neutral-900 active:bg-neutral-950 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Camera className="w-4 h-4" aria-hidden />
+                      {t('machineParameterPhotos.takePhoto')}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(deletingPhotoId)}
+                      onClick={() => galleryInputRef.current?.click()}
+                      className="inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-neutral-800 text-white text-sm font-medium rounded-lg hover:bg-neutral-900 active:bg-neutral-950 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Images className="w-4 h-4" aria-hidden />
+                      {t('machineParameterPhotos.choosePhotos')}
+                    </button>
+                  </div>
+                )}
 
                 {currentPhoto && (
                   <button
