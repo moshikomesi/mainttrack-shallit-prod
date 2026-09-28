@@ -76,9 +76,8 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
 
   const formReady = useMemo(() => {
     if (!selectedArrayId || !selectedMachineId || !selectedComponent) return false;
-    if (isOtherComponent && !otherComponentText.trim()) return false;
     return true;
-  }, [selectedArrayId, selectedMachineId, selectedComponent, isOtherComponent, otherComponentText]);
+  }, [selectedArrayId, selectedMachineId, selectedComponent]);
 
   const rowHasImage = Boolean(photoFile || uploadedImageUrl);
   photoPreviewUrlRef.current = photoPreviewUrl;
@@ -306,21 +305,12 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
         value: selectedComponent,
         errorKey: 'validation.requiredComponent',
       },
+      {
+        fieldId: 'field-confirmName',
+        value: name,
+        errorKey: 'validation.requiredConfirmName',
+      },
     ];
-
-    if (isOtherComponent) {
-      requiredChecks.push({
-        fieldId: 'field-v2-other-component',
-        value: otherComponentText,
-        errorKey: 'validation.requiredOtherComponent',
-      });
-    }
-
-    requiredChecks.push({
-      fieldId: 'field-confirmName',
-      value: name,
-      errorKey: 'validation.requiredConfirmName',
-    });
 
     const result = validateRequired(requiredChecks);
     if (!result.valid && result.firstInvalidField && result.errorKey) {
@@ -522,7 +512,6 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
               <div>
                 <label className="block text-xs font-medium text-neutral-600 mb-1">
                   {t('maintenanceLogV2.otherComponent')}
-                  <span className="text-red-500 ml-1">*</span>
                 </label>
                 <input
                   id="field-v2-other-component"
