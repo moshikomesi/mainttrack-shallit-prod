@@ -408,6 +408,8 @@ export const translations: Record<string, Record<Language, string>> = {
   'log.notes': { en: 'Additional Notes', he: 'הערות ', th: 'ความคิดเห็น' },
   'log.photo': { en: 'Photo', he: 'תמונה', th: 'รูปภาพ' },
   'log.takePicture': { en: 'Take Picture', he: 'צלם תמונה', th: 'ถ่ายภาพ' },
+  'log.takePhoto': { en: 'Take Photo', he: 'צלם תמונה', th: 'ถ่ายภาพ' },
+  'log.choosePhotos': { en: 'Choose Photos', he: 'בחר תמונות', th: 'เลือกรูปภาพ' },
   'log.dropPhoto': { en: 'or drag and drop an image here', he: 'או גרור תמונה לכאן', th: 'หรือลากและวางรูปที่นี่' },
   'log.additionalPhotos': {
     en: 'Optional photos',

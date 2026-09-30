@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from 'react';
+import { useId, useRef, useState, type CSSProperties, type ChangeEvent } from 'react';
 import { Camera, Images, X } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES } from '../services/uploadService';
@@ -13,6 +13,8 @@ interface MaintenanceImagePickerProps {
   onRemovePrimary: () => void;
   onRemoveAdditional: (index: number) => void;
 }
+
+type ImageSelectionPurpose = 'primary' | 'additional';
 
 const imagePreviewFrameStyle: CSSProperties = {
   position: 'relative',
@@ -49,6 +51,38 @@ const removeTextButtonStyle: CSSProperties = {
   cursor: 'pointer',
 };
 
+const sourceButtonClassName =
+  'w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 border border-neutral-300 rounded-lg bg-white text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed';
+
+function PhotoSourceActions({
+  disabled,
+  labelledBy,
+  takePhotoLabel,
+  choosePhotosLabel,
+  onTakePhoto,
+  onChoosePhotos,
+}: {
+  disabled: boolean;
+  labelledBy?: string;
+  takePhotoLabel: string;
+  choosePhotosLabel: string;
+  onTakePhoto: () => void;
+  onChoosePhotos: () => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2" role="group" aria-labelledby={labelledBy}>
+      <button type="button" onClick={onTakePhoto} disabled={disabled} className={sourceButtonClassName}>
+        <Camera className="w-4 h-4 shrink-0" aria-hidden />
+        {takePhotoLabel}
+      </button>
+      <button type="button" onClick={onChoosePhotos} disabled={disabled} className={sourceButtonClassName}>
+        <Images className="w-4 h-4 shrink-0" aria-hidden />
+        {choosePhotosLabel}
+      </button>
+    </div>
+  );
+}
+
 export function MaintenanceImagePicker({
   primaryImage,
   additionalImages,
@@ -59,8 +93,12 @@ export function MaintenanceImagePicker({
   onRemoveAdditional,
 }: MaintenanceImagePickerProps) {
   const { t } = useLanguage();
-  const primaryInputRef = useRef<HTMLInputElement>(null);
-  const additionalInputRef = useRef<HTMLInputElement>(null);
+  const fieldId = useId();
+  const replaceLabelId = `${fieldId}-replace-primary`;
+  const additionalLabelId = `${fieldId}-add-photos`;
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const purposeRef = useRef<ImageSelectionPurpose>('primary');
   const [dropTargetActive, setDropTargetActive] = useState(false);
   const primarySrc = safeImageSrc(primaryImage);
   const additionalSources = additionalImages
@@ -69,17 +107,53 @@ export function MaintenanceImagePicker({
   const canAddAdditional =
     Boolean(primarySrc) && additionalImages.length < MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES;
 
-  const selectPrimary = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (file) onPrimarySelected(file);
+  const openCamera = (purpose: ImageSelectionPurpose) => {
+    purposeRef.current = purpose;
+    cameraInputRef.current?.click();
   };
 
-  const selectAdditional = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const openGallery = (purpose: ImageSelectionPurpose) => {
+    purposeRef.current = purpose;
+    galleryInputRef.current?.click();
+  };
+
+  const applySelectedFiles = (files: File[]) => {
+    if (files.length === 0) return;
+
+    const purpose = purposeRef.current;
+    if (purpose === 'additional' && primarySrc) {
+      onAdditionalSelected(files);
+      return;
+    }
+
+    onPrimarySelected(files[0]);
+    if (files.length > 1) {
+      onAdditionalSelected(files.slice(1));
+    }
+  };
+
+  const selectFromCamera = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) applySelectedFiles([file]);
+  };
+
+  const selectFromGallery = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    if (files.length > 0) onAdditionalSelected(files);
+    applySelectedFiles(files);
   };
+
+  const sourceActions = (purpose: ImageSelectionPurpose, labelledBy?: string) => (
+    <PhotoSourceActions
+      disabled={disabled}
+      labelledBy={labelledBy}
+      takePhotoLabel={t('log.takePhoto')}
+      choosePhotosLabel={t('log.choosePhotos')}
+      onTakePhoto={() => openCamera(purpose)}
+      onChoosePhotos={() => openGallery(purpose)}
+    />
+  );
 
   return (
     <div className="space-y-3">
@@ -106,14 +180,10 @@ export function MaintenanceImagePicker({
               <X className="w-5 h-5" aria-hidden />
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => primaryInputRef.current?.click()}
-            disabled={disabled}
-            className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-          >
+          <p id={replaceLabelId} className="text-xs font-medium text-neutral-600">
             {t('log.replacePrimaryPhoto')}
-          </button>
+          </p>
+          {sourceActions('primary', replaceLabelId)}
           <button
             type="button"
             onClick={onRemovePrimary}
@@ -152,18 +222,10 @@ export function MaintenanceImagePicker({
             dropTargetActive ? 'border-neutral-800 bg-neutral-100' : 'border-neutral-300'
           }`}
         >
-          <button
-            type="button"
-            onClick={() => primaryInputRef.current?.click()}
-            disabled={disabled}
-            className="w-full p-3 flex flex-col items-center justify-center gap-1 text-neutral-700 hover:bg-neutral-50 transition-colors rounded-lg disabled:opacity-50"
-          >
-            <div className="flex items-center justify-center gap-2">
-              <Camera className="w-5 h-5" aria-hidden />
-              <span className="text-sm font-medium">{t('log.takePicture')}</span>
-            </div>
-            <span className="text-xs text-neutral-500">{t('log.dropPhoto')}</span>
-          </button>
+          <div className="p-3 space-y-2">
+            {sourceActions('primary')}
+            <p className="text-xs text-center text-neutral-500">{t('log.dropPhoto')}</p>
+          </div>
         </div>
       )}
 
@@ -211,15 +273,12 @@ export function MaintenanceImagePicker({
           ))}
 
           {canAddAdditional && (
-            <button
-              type="button"
-              onClick={() => additionalInputRef.current?.click()}
-              disabled={disabled}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 border border-neutral-300 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Images className="w-4 h-4" aria-hidden />
-              {t('log.addOptionalPhotos')}
-            </button>
+            <div className="space-y-2">
+              <p id={additionalLabelId} className="text-xs font-medium text-neutral-600">
+                {t('log.addOptionalPhotos')}
+              </p>
+              {sourceActions('additional', additionalLabelId)}
+            </div>
           )}
         </div>
       )}
@@ -227,19 +286,20 @@ export function MaintenanceImagePicker({
       {/* Native file inputs must stay display:none — browsers paint "No file chosen" otherwise. */}
       <div className="hidden" aria-hidden="true">
         <input
-          ref={primaryInputRef}
+          ref={cameraInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp"
-          onChange={selectPrimary}
+          capture="environment"
+          onChange={selectFromCamera}
           tabIndex={-1}
           style={{ display: 'none' }}
         />
         <input
-          ref={additionalInputRef}
+          ref={galleryInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp"
           multiple
-          onChange={selectAdditional}
+          onChange={selectFromGallery}
           tabIndex={-1}
           style={{ display: 'none' }}
         />

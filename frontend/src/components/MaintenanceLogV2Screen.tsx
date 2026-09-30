@@ -53,6 +53,7 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
   const [additionalPhotoPreviewUrls, setAdditionalPhotoPreviewUrls] = useState<string[]>([]);
   const photoPreviewUrlRef = useRef<string | undefined>();
   const additionalPreviewUrlsRef = useRef<string[]>([]);
+  const hasPrimaryImageRef = useRef(false);
 
   const [name] = useState(() => getCurrentUserDisplayName());
   const [isDeclarationConfirmed, setIsDeclarationConfirmed] = useState(false);
@@ -80,6 +81,7 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
   }, [selectedArrayId, selectedMachineId, selectedComponent]);
 
   const rowHasImage = Boolean(photoFile || uploadedImageUrl);
+  hasPrimaryImageRef.current = rowHasImage;
   photoPreviewUrlRef.current = photoPreviewUrl;
   additionalPreviewUrlsRef.current = additionalPhotoPreviewUrls;
 
@@ -212,6 +214,10 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
         throw e;
       }
 
+      // Gallery selection can assign the primary photo and additional photos in the
+      // same change event, before this state re-renders.
+      hasPrimaryImageRef.current = true;
+
       if (photoPreviewUrl) {
         URL.revokeObjectURL(photoPreviewUrl);
       }
@@ -224,7 +230,7 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
 
   const assignAdditionalPhotos = useCallback(
     (files: File[]) => {
-      if (submittingRef.current || !rowHasImage) return;
+      if (submittingRef.current || !hasPrimaryImageRef.current) return;
       const availableSlots = MAINTENANCE_LOG_MAX_ADDITIONAL_IMAGES - additionalPhotoFiles.length;
       if (availableSlots <= 0) {
         toast.error(t('validation.maximumAdditionalImages'));
@@ -255,10 +261,11 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
         ...accepted.map((file) => URL.createObjectURL(file)),
       ]);
     },
-    [additionalPhotoFiles.length, rowHasImage, t]
+    [additionalPhotoFiles.length, t]
   );
 
   const removePhoto = () => {
+    hasPrimaryImageRef.current = false;
     if (photoPreviewUrl) {
       URL.revokeObjectURL(photoPreviewUrl);
     }

@@ -183,20 +183,21 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
         throw e;
       }
 
-      setEntries((prev) =>
-        prev.map((entry) => {
-          if (entry.id !== entryId) return entry;
-          if (entry.photoPreviewUrl) {
-            URL.revokeObjectURL(entry.photoPreviewUrl);
-          }
-          return {
-            ...entry,
-            photoFile: file,
-            photoPreviewUrl: URL.createObjectURL(file),
-            uploadedImageUrl: undefined,
-          };
-        })
-      );
+      const nextEntries = entriesRef.current.map((entry) => {
+        if (entry.id !== entryId) return entry;
+        if (entry.photoPreviewUrl) {
+          URL.revokeObjectURL(entry.photoPreviewUrl);
+        }
+        return {
+          ...entry,
+          photoFile: file,
+          photoPreviewUrl: URL.createObjectURL(file),
+          uploadedImageUrl: undefined,
+        };
+      });
+      // Publish before additional files from the same gallery selection are applied.
+      entriesRef.current = nextEntries;
+      setEntries(nextEntries);
     },
     [t]
   );
@@ -233,20 +234,20 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
       if (accepted.length === 0) return;
 
       const previewUrls = accepted.map((file) => URL.createObjectURL(file));
-      setEntries((prev) =>
-        prev.map((item) =>
-          item.id === entryId
-            ? {
-                ...item,
-                additionalPhotoFiles: [...(item.additionalPhotoFiles ?? []), ...accepted],
-                additionalPhotoPreviewUrls: [
-                  ...(item.additionalPhotoPreviewUrls ?? []),
-                  ...previewUrls,
-                ],
-              }
-            : item
-        )
+      const nextEntries = entriesRef.current.map((item) =>
+        item.id === entryId
+          ? {
+              ...item,
+              additionalPhotoFiles: [...(item.additionalPhotoFiles ?? []), ...accepted],
+              additionalPhotoPreviewUrls: [
+                ...(item.additionalPhotoPreviewUrls ?? []),
+                ...previewUrls,
+              ],
+            }
+          : item
       );
+      entriesRef.current = nextEntries;
+      setEntries(nextEntries);
     },
     [t]
   );
