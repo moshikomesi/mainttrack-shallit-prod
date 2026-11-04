@@ -4,6 +4,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { Calendar, ClipboardCheck, ClipboardList, Droplets, FileText, Loader2, RefreshCw, Truck } from 'lucide-react';
 import { AnnualPlanReportScreen } from './AnnualPlanReportScreen';
 import { ForkliftReportsScreen } from './ForkliftReportsScreen';
+import { FORKLIFT_REPORTS_UI_ENABLED } from '../auth/roles';
 import { MaintenanceTasksReportScreen } from './reports/MaintenanceTasksReportScreen';
 import { ReportLocationHeader } from './reports/ReportLocationHeader';
 import { getMorningRounds } from '../services/morningRoundsService';
@@ -483,15 +484,17 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                 {t('treatments.title')}
               </div>
             </button>
-            <button
-              onClick={() => setSelectedType('forklift')}
-              className="w-full bg-white border border-neutral-200 rounded-lg p-5 flex flex-col items-center justify-center gap-2 text-center hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
-            >
-              <Truck className="w-6 h-6 text-neutral-700" />
-              <div className="text-base font-semibold text-neutral-900">
-                {t('forkliftReports.title')}
-              </div>
-            </button>
+            {FORKLIFT_REPORTS_UI_ENABLED && (
+              <button
+                onClick={() => setSelectedType('forklift')}
+                className="w-full bg-white border border-neutral-200 rounded-lg p-5 flex flex-col items-center justify-center gap-2 text-center hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
+              >
+                <Truck className="w-6 h-6 text-neutral-700" />
+                <div className="text-base font-semibold text-neutral-900">
+                  {t('forkliftReports.title')}
+                </div>
+              </button>
+            )}
           </div>
         ) : selectedType === 'maintenance-tasks' ? (
           <MaintenanceTasksReportScreen
