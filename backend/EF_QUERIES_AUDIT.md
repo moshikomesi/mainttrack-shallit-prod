@@ -65,8 +65,8 @@ For each query the table below lists: file, class, method, type, code snippet, e
 | 28 | ForkliftService.cs | ForkliftService | UpdateAsync | read+write | `_dbContext.Forklifts.FirstOrDefaultAsync(f => f.Id == id)` (tracked), then property updates, SaveChangesAsync | Forklift | No | No | No | No | No | No | — |
 | 29 | MaintenanceEntryService.cs | MaintenanceEntryService | CreateAsync (validation) | read | `_dbContext.Machines.AnyAsync(m => m.Id == request.MachineId && m.TenantId == tenantId, ct)` | Machine | No | N/A | No | No | No | No | AsNoTracking not needed for AnyAsync |
 | 30 | MaintenanceEntryService.cs | MaintenanceEntryService | CreateAsync | write | AddAsync(entry), AddAsync(AuditLog), SaveChangesAsync | MaintenanceEntry, AuditLog | N/A | N/A | N/A | No | No | No | — |
-| 31 | MaintenanceEntryService.cs | MaintenanceEntryService | UpdateAsync | read+write | `_dbContext.MaintenanceEntries.FirstOrDefaultAsync(e => e.Id == id)` (tracked), AddAsync(AuditLog), SaveChangesAsync | MaintenanceEntry, AuditLog | No | No | No | No | No | No | — |
-| 32 | MaintenanceEntryService.cs | MaintenanceEntryService | DeleteAsync | read+write | `_dbContext.MaintenanceEntries.FirstOrDefaultAsync(e => e.Id == id)` (tracked), Remove(entry), AddAsync(AuditLog), SaveChangesAsync | MaintenanceEntry, AuditLog | No | No | No | No | No | No | — |
+| 31 | MaintenanceEntryService.cs | MaintenanceEntryService | (removed) | — | No update operation: submitted maintenance reports are immutable | — | — | — | — | — | — | — | — |
+| 32 | MaintenanceEntryService.cs | MaintenanceEntryService | DeleteAsync | read | `_dbContext.MaintenanceEntries.AsNoTracking().AnyAsync(e => e.Id == id && e.TenantId == tenantId)`, then always rejects (reports are never deleted) | MaintenanceEntry | No | N/A | Yes | No | No | No | — |
 | 33 | MaintenanceEntryService.cs | MaintenanceEntryService | GetAsync | read | `from e in _dbContext.MaintenanceEntries.AsNoTracking() join m in _dbContext.Machines.AsNoTracking() on e.MachineId equals m.Id` + Where + OrderByDescending + Skip/Take + Select(MaintenanceEntryDto) + ToListAsync | MaintenanceEntry, Machine | No (join) | Yes | Yes | No | No | No | Index on Date, MachineId for filters |
 | 34 | MaintenanceEntryService.cs | MaintenanceEntryService | GetByIdAsync | read | Same join, where e.Id == id, Select(MaintenanceEntryDto).FirstOrDefaultAsync() | MaintenanceEntry, Machine | No | Yes | Yes | No | No | No | — |
 | 35 | LoginService.cs | LoginService | AuthenticateAsync | read | `_dbContext.Users.IgnoreQueryFilters().Where(u => u.IsActive && (EF.Functions.ILike(u.Username, ...) \|\| EF.Functions.ILike(u.Email, ...))).FirstOrDefaultAsync()` | User | No | No (returns entity) | No | No | No | No | Add AsNoTracking(); we only read and verify password |
@@ -98,7 +98,7 @@ All other read paths use Select projection instead of Include; no unnecessary In
 |----------|--------|----------------|
 | **ForkliftReportService.CreateAsync** | `FirstOrDefaultAsync(f => f.Id == request.ForkliftId)` returns full Forklift | Intentional: entity is updated (inspection dates). OK. |
 | **ForkliftService.UpdateAsync** | `FirstOrDefaultAsync(f => f.Id == id)` returns full Forklift | Intentional: entity is updated. OK. |
-| **MaintenanceEntryService.UpdateAsync / DeleteAsync** | FirstOrDefaultAsync returns full MaintenanceEntry | Intentional: update/delete. OK. |
+| **MaintenanceEntryService.DeleteAsync** | AnyAsync existence check only | Reports are never deleted or updated. OK. |
 | **LoginService.AuthenticateAsync** | Returns full User (including PasswordHash) | Required for password verification. Consider projecting to a small type if you ever need to avoid loading large fields. |
 
 No clear “return full entity where DTO would suffice” in read-only APIs; list/get endpoints use projection.
@@ -124,7 +124,6 @@ None found. All loops (e.g. request.Faults, request.Treatments) only build in-me
 |----------|--------|------|
 | TreatmentService.CreateAsync | Add treatment + Add audit + 1× SaveChangesAsync | Already single round-trip. |
 | ForkliftReportService.CreateAsync | Add report (with children) + Add audit + 1× SaveChangesAsync | OK. |
-| MaintenanceEntryService.UpdateAsync | Load entry, add audit, 1× SaveChangesAsync | OK. |
 | MaintenanceEntryService.DeleteAsync | Load entry, Remove, Add audit, 1× SaveChangesAsync | OK. |
 
 No batching issues; each operation uses one SaveChangesAsync per request.
@@ -194,8 +193,8 @@ Verify existing migrations for Treatment, MorningRoundReport, MaintenanceEntry, 
 | /api/maintenance | GET | MaintenanceEntryEndpoints → IMaintenanceEntryService.GetAsync | MaintenanceEntryService.GetAsync: MaintenanceEntries join Machines (AsNoTracking), Where, OrderBy, Skip/Take, Select DTO |
 | /api/maintenance/{id} | GET | MaintenanceEntryEndpoints → IMaintenanceEntryService.GetByIdAsync | MaintenanceEntryService.GetByIdAsync: MaintenanceEntries join Machines (AsNoTracking), Where Id, Select DTO |
 | /api/maintenance | POST | MaintenanceEntryEndpoints → IMaintenanceEntryService.CreateAsync | MaintenanceEntryService.CreateAsync: Machines.AnyAsync (validation), Add MaintenanceEntry, Add AuditLog, SaveChangesAsync |
-| /api/maintenance/{id} | PUT | MaintenanceEntryEndpoints → IMaintenanceEntryService.UpdateAsync | MaintenanceEntryService.UpdateAsync: MaintenanceEntries FirstOrDefaultAsync (tracked), Add AuditLog, SaveChangesAsync |
-| /api/maintenance/{id} | DELETE | MaintenanceEntryEndpoints → IMaintenanceEntryService.DeleteAsync | MaintenanceEntryService.DeleteAsync: MaintenanceEntries FirstOrDefaultAsync (tracked), Remove entry, Add AuditLog, SaveChangesAsync |
+| /api/maintenance/{id} | PUT | MaintenanceEntryEndpoints (no service call) | Always 403: submitted maintenance reports cannot be edited; no database access |
+| /api/maintenance/{id} | DELETE | MaintenanceEntryEndpoints → IMaintenanceEntryService.DeleteAsync | MaintenanceEntryService.DeleteAsync: MaintenanceEntries AnyAsync (AsNoTracking), then always rejected (403 non-SuperAdmin, 400 SuperAdmin); no write |
 | (Login / Auth) | — | Auth flow → ILoginService.AuthenticateAsync | LoginService.AuthenticateAsync: Users (IgnoreQueryFilters, Where IsActive + ILike Username/Email), FirstOrDefaultAsync |
 | /api/maintenance-tasks | POST | MaintenanceTasksController → IFileStorageService → IMaintenanceTasksService | Stores uploaded file, then inserts maintenance task row |
 

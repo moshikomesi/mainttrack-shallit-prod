@@ -293,6 +293,121 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.ToTable("audit_logs", (string)null);
                 });
 
+            modelBuilder.Entity("MaintTrack.Domain.Clearance.ClearanceApprover", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("clearance_approvers", (string)null);
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Clearance.ClearanceItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecidedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by_user_id");
+
+                    b.Property<string>("DecisionNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("decision_note");
+
+                    b.Property<Guid?>("MaintenanceEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("maintenance_entry_id");
+
+                    b.Property<Guid?>("MorningRoundV2SubmissionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("morning_round_v2_submission_id");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("source_type");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at");
+
+                    b.Property<Guid>("SubmittedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("submitted_by_user_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DecidedByUserId");
+
+                    b.HasIndex("MaintenanceEntryId")
+                        .IsUnique()
+                        .HasFilter("maintenance_entry_id IS NOT NULL");
+
+                    b.HasIndex("MorningRoundV2SubmissionId")
+                        .IsUnique()
+                        .HasFilter("morning_round_v2_submission_id IS NOT NULL");
+
+                    b.HasIndex("TenantId", "Status", "SubmittedAt");
+
+                    b.ToTable("clearance_items", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_clearance_items_decision", "(status = 'pending' AND decided_by_user_id IS NULL AND decided_at IS NULL) OR (status IN ('approved', 'rejected') AND decided_by_user_id IS NOT NULL AND decided_at IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_clearance_items_source_reference", "(source_type = 'maintenance_entry' AND maintenance_entry_id IS NOT NULL AND morning_round_v2_submission_id IS NULL) OR (source_type = 'morning_round_v2' AND maintenance_entry_id IS NULL AND morning_round_v2_submission_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_clearance_items_source_type", "source_type IN ('maintenance_entry', 'morning_round_v2')");
+
+                            t.HasCheckConstraint("ck_clearance_items_status", "status IN ('pending', 'approved', 'rejected')");
+                        });
+                });
+
             modelBuilder.Entity("MaintTrack.Domain.Forklifts.Forklift", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1314,6 +1429,36 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.Navigation("Execution");
 
                     b.Navigation("Technician");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Clearance.ClearanceApprover", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Users.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Clearance.ClearanceItem", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("DecidedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("MaintTrack.Domain.Maintenance.MaintenanceEntry", null)
+                        .WithMany()
+                        .HasForeignKey("MaintenanceEntryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("MaintTrack.Domain.MorningRoundV2.MorningRoundV2Submission", null)
+                        .WithMany()
+                        .HasForeignKey("MorningRoundV2SubmissionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_clearance_items_morning_round_v2_submissions_submission_id");
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.Forklifts.ForkliftFault", b =>

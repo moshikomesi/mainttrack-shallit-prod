@@ -33,6 +33,9 @@ using MaintTrack.Application.Reports.MaintenanceTasks;
 using MaintTrack.Application.Treatments;
 using MaintTrack.Application.AnnualPlans;
 using MaintTrack.Application.MachineParameterPhotos;
+using MaintTrack.Application.Clearance;
+using MaintTrack.Infrastructure.Clearance;
+using MaintTrack.Infrastructure.Calendar;
 using MaintTrack.Infrastructure.Forklifts;
 using MaintTrack.Infrastructure.MachineParameterPhotos;
 using MaintTrack.Infrastructure.Maintenance;
@@ -105,6 +108,12 @@ builder.Services.AddScoped<
     IMorningRoundV2Service,
     MorningRoundV2Service>();
 
+// Fails at startup on an unknown time zone id rather than mis-dating reports.
+builder.Services.AddSingleton<IBusinessCalendar>(new BusinessCalendar(
+    TimeProvider.System,
+    TimeZoneInfo.FindSystemTimeZoneById(
+        builder.Configuration["BusinessCalendar:TimeZoneId"] ?? BusinessCalendar.DefaultTimeZoneId)));
+
 // Maintenance
 builder.Services.AddScoped<
     IMaintenanceEntryService,
@@ -113,6 +122,7 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<IMaintenanceTypeService, MaintTrack.Infrastructure.Maintenance.MaintenanceTypeService>();
 builder.Services.AddScoped<IMachineComponentService, MachineComponentService>();
 builder.Services.AddScoped<IMachineParameterPhotoService, MachineParameterPhotoService>();
+builder.Services.AddScoped<IClearanceService, ClearanceService>();
 builder.Services.AddScoped<IMaintenanceTasksRepository, MaintenanceTasksRepository>();
 builder.Services.AddScoped<IMaintenanceTasksService, MaintenanceTasksService>();
 
@@ -354,6 +364,7 @@ app.MapAuth();
 app.MapMachines();
 app.MapHierarchyEndpoints();
 app.MapMachineParameterPhotoEndpoints();
+app.MapClearanceEndpoints();
 app.MapMorningRoundEndpoints();
 app.MapMorningRoundV2Endpoints();
 app.MapMaintenanceEntryEndpoints();

@@ -1,6 +1,7 @@
 using MaintTrack.Application.Abstractions;
 using MaintTrack.Domain.Arrays;
 using MaintTrack.Domain.Audit;
+using MaintTrack.Domain.Clearance;
 using MaintTrack.Domain.Forklifts;
 using MaintTrack.Domain.Machines;
 using MaintTrack.Domain.MachineComponents;
@@ -58,6 +59,10 @@ public class MaintTrackDbContext : DbContext
 
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
+    public DbSet<ClearanceItem> ClearanceItems => Set<ClearanceItem>();
+
+    public DbSet<ClearanceApprover> ClearanceApprovers => Set<ClearanceApprover>();
+
     public DbSet<MaintenanceEntry> MaintenanceEntries => Set<MaintenanceEntry>();
 
     public DbSet<MaintenanceEntryImage> MaintenanceEntryImages => Set<MaintenanceEntryImage>();
@@ -109,6 +114,7 @@ public class MaintTrackDbContext : DbContext
         ConfigureMorningRoundV2Submission(modelBuilder);
         ConfigureAuditLog(modelBuilder);
         ConfigureMaintenance(modelBuilder);
+        ConfigureClearance(modelBuilder);
         ConfigureMaintenanceTaskLogs(modelBuilder);
         ConfigureTreatment(modelBuilder);
         ConfigureAnnualPlans(modelBuilder);
@@ -822,6 +828,148 @@ public class MaintTrackDbContext : DbContext
         imageEntity.HasIndex(x => new { x.TenantId, x.MaintenanceEntryId });
 
         imageEntity.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+    }
+
+    private void ConfigureClearance(ModelBuilder modelBuilder)
+    {
+        var item = modelBuilder.Entity<ClearanceItem>();
+
+        item.ToTable(
+            "clearance_items",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_clearance_items_source_type",
+                    "source_type IN ('maintenance_entry', 'morning_round_v2')");
+                table.HasCheckConstraint(
+                    "ck_clearance_items_status",
+                    "status IN ('pending', 'approved', 'rejected')");
+                table.HasCheckConstraint(
+                    "ck_clearance_items_source_reference",
+                    "(source_type = 'maintenance_entry'" +
+                    " AND maintenance_entry_id IS NOT NULL" +
+                    " AND morning_round_v2_submission_id IS NULL)" +
+                    " OR (source_type = 'morning_round_v2'" +
+                    " AND maintenance_entry_id IS NULL" +
+                    " AND morning_round_v2_submission_id IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_clearance_items_decision",
+                    "(status = 'pending' AND decided_by_user_id IS NULL AND decided_at IS NULL)" +
+                    " OR (status IN ('approved', 'rejected')" +
+                    " AND decided_by_user_id IS NOT NULL AND decided_at IS NOT NULL)");
+            });
+
+        item.HasKey(x => x.Id);
+
+        item.Property(x => x.Id)
+            .HasColumnName("id");
+
+        item.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        item.Property(x => x.SourceType)
+            .HasColumnName("source_type")
+            .HasMaxLength(50)
+            .IsRequired();
+
+        item.Property(x => x.MaintenanceEntryId)
+            .HasColumnName("maintenance_entry_id");
+
+        item.Property(x => x.MorningRoundV2SubmissionId)
+            .HasColumnName("morning_round_v2_submission_id");
+
+        item.Property(x => x.Status)
+            .HasColumnName("status")
+            .HasMaxLength(20)
+            .IsRequired();
+
+        item.Property(x => x.SubmittedByUserId)
+            .HasColumnName("submitted_by_user_id")
+            .IsRequired();
+
+        item.Property(x => x.SubmittedAt)
+            .HasColumnName("submitted_at")
+            .IsRequired();
+
+        item.Property(x => x.DecidedByUserId)
+            .HasColumnName("decided_by_user_id");
+
+        item.Property(x => x.DecidedAt)
+            .HasColumnName("decided_at");
+
+        item.Property(x => x.DecisionNote)
+            .HasColumnName("decision_note")
+            .HasMaxLength(2000);
+
+        item.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        item.Property(x => x.UpdatedAt)
+            .HasColumnName("updated_at");
+
+        // Restrict everywhere: deleting a source row must never silently remove approval history.
+        item.HasOne<MaintenanceEntry>()
+            .WithMany()
+            .HasForeignKey(x => x.MaintenanceEntryId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        item.HasOne<MorningRoundV2Submission>()
+            .WithMany()
+            .HasForeignKey(x => x.MorningRoundV2SubmissionId)
+            .HasConstraintName("FK_clearance_items_morning_round_v2_submissions_submission_id")
+            .OnDelete(DeleteBehavior.Restrict);
+
+        item.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(x => x.DecidedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        item.HasIndex(x => new { x.TenantId, x.Status, x.SubmittedAt });
+
+        item.HasIndex(x => x.MaintenanceEntryId)
+            .IsUnique()
+            .HasFilter("maintenance_entry_id IS NOT NULL");
+
+        item.HasIndex(x => x.MorningRoundV2SubmissionId)
+            .IsUnique()
+            .HasFilter("morning_round_v2_submission_id IS NOT NULL");
+
+        item.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+
+        var approver = modelBuilder.Entity<ClearanceApprover>();
+
+        approver.ToTable("clearance_approvers");
+
+        approver.HasKey(x => x.Id);
+
+        approver.Property(x => x.Id)
+            .HasColumnName("id");
+
+        approver.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        approver.Property(x => x.UserId)
+            .HasColumnName("user_id")
+            .IsRequired();
+
+        approver.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        approver.Ignore(x => x.UpdatedAt);
+
+        approver.HasIndex(x => new { x.TenantId, x.UserId })
+            .IsUnique();
+
+        approver.HasOne(x => x.User)
+            .WithMany()
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        approver.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
     private void ConfigureTreatment(ModelBuilder modelBuilder)

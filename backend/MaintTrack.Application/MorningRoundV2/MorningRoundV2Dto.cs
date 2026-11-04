@@ -12,6 +12,10 @@ public sealed record MorningRoundV2ArrayDto(
     string NameKey,
     IReadOnlyList<MorningRoundV2MachineDto> Machines);
 
+/// <summary>
+/// <see cref="Timestamp"/> is accepted for compatibility but ignored: the submission time and
+/// report date are taken from the server clock in the business time zone.
+/// </summary>
 public sealed record SubmitMorningRoundV2Request(
     DateTime Timestamp,
     IReadOnlyList<SubmitMorningRoundV2ItemRequest> Items);
@@ -25,6 +29,20 @@ public sealed record SubmitMorningRoundV2Response(
     Guid Id,
     DateOnly ReportDate,
     DateTime SubmittedAt);
+
+/// <summary>
+/// The tenant already has a Morning Round V2 submission for this business day; nothing was changed.
+/// </summary>
+public sealed class MorningRoundV2AlreadySubmittedException : Exception
+{
+    public MorningRoundV2AlreadySubmittedException(DateOnly reportDate)
+        : base($"A Morning Round report has already been submitted for {reportDate:yyyy-MM-dd}.")
+    {
+        ReportDate = reportDate;
+    }
+
+    public DateOnly ReportDate { get; }
+}
 
 public sealed record MorningRoundV2ReportSubmittedByDto(
     Guid UserId,

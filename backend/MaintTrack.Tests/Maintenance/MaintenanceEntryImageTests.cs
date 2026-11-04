@@ -136,32 +136,6 @@ public sealed class MaintenanceEntryImageTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task UpdateAsync_RejectsPrimaryImageChange()
-    {
-        var id = await _service.CreateAsync(new CreateMaintenanceEntryRequest
-        {
-            MachineId = _machineId,
-            Date = DateOnly.FromDateTime(DateTime.UtcNow),
-            MaintenanceTypeId = _typeId,
-            ImageUrl = "/uploads/primary.jpg",
-            WorkHours = 1,
-            IsSafeToOperate = true
-        }, CancellationToken.None);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.UpdateAsync(
-            id,
-            new UpdateMaintenanceEntryRequest
-            {
-                MaintenanceTypeId = _typeId,
-                ImageUrl = "/uploads/changed.jpg",
-                EmployeeName = _currentUser.DisplayName,
-                WorkHours = 1,
-                IsSafeToOperate = true
-            },
-            CancellationToken.None));
-    }
-
-    [Fact]
     public async Task GetByIdAsync_LegacyEntryWithoutAdditionalImages_ReturnsEmptyList()
     {
         var id = await _service.CreateAsync(new CreateMaintenanceEntryRequest
