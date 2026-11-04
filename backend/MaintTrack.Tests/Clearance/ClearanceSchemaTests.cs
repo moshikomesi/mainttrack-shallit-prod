@@ -93,9 +93,10 @@ public sealed class ClearanceSchemaTests : IAsyncDisposable
     {
         var foreignKeys = _dbContext.Model.FindEntityType(typeof(ClearanceItem))!.GetForeignKeys()
             .Concat(_dbContext.Model.FindEntityType(typeof(ClearanceApprover))!.GetForeignKeys())
+            .Concat(_dbContext.Model.FindEntityType(typeof(ClearanceViewer))!.GetForeignKeys())
             .ToList();
 
-        Assert.Equal(4, foreignKeys.Count);
+        Assert.Equal(5, foreignKeys.Count);
         Assert.All(foreignKeys, fk => Assert.Equal(DeleteBehavior.Restrict, fk.DeleteBehavior));
     }
 
@@ -361,6 +362,39 @@ public sealed class ClearanceSchemaTests : IAsyncDisposable
         Assert.Equal(mine.Id, visible[0].UserId);
     }
 
+    [Fact]
+    public void Model_MapsClearanceViewersLikeApprovers()
+    {
+        var viewer = _dbContext.Model.FindEntityType(typeof(ClearanceViewer))!;
+
+        Assert.Equal("clearance_viewers", viewer.GetTableName());
+        Assert.NotNull(viewer.GetQueryFilter());
+        Assert.Equal("tenant_id", viewer.FindProperty(nameof(ClearanceViewer.TenantId))!.GetColumnName());
+        Assert.Equal("user_id", viewer.FindProperty(nameof(ClearanceViewer.UserId))!.GetColumnName());
+        Assert.Contains(viewer.GetIndexes(), index =>
+            index.IsUnique &&
+            index.Properties.Select(p => p.Name).SequenceEqual(new[] { nameof(ClearanceViewer.TenantId), nameof(ClearanceViewer.UserId) }));
+    }
+
+    [Fact]
+    public async Task ClearanceViewer_IsTenantIsolatedAndUniquePerUser()
+    {
+        var mine = await SeedUserAsync(_tenantId, "tenant-viewer");
+        var other = await SeedUserAsync(_otherTenantId, "other-viewer");
+
+        _dbContext.ClearanceViewers.AddRange(
+            new ClearanceViewer { Id = Guid.NewGuid(), TenantId = _tenantId, UserId = mine.Id, CreatedAt = DateTime.UtcNow },
+            new ClearanceViewer { Id = Guid.NewGuid(), TenantId = _otherTenantId, UserId = other.Id, CreatedAt = DateTime.UtcNow });
+        await _dbContext.SaveChangesAsync();
+
+        var visible = Assert.Single(await _dbContext.ClearanceViewers.AsNoTracking().ToListAsync());
+        Assert.Equal(mine.Id, visible.UserId);
+
+        _dbContext.ClearanceViewers.Add(
+            new ClearanceViewer { Id = Guid.NewGuid(), TenantId = _tenantId, UserId = mine.Id, CreatedAt = DateTime.UtcNow });
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
     // Documents why Clearance services must also filter by tenant explicitly:
     // the shared query filter is disabled when the tenant is unresolved.
     [Fact]
@@ -397,6 +431,98 @@ public sealed class ClearanceSchemaTests : IAsyncDisposable
 
         await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
     }
+
+    public static TheoryData<string> GrantTables => new() { "approver", "viewer" };
+
+    [Fact]
+    public void Model_GrantForeignKeysReferenceUserIdAndTenant()
+    {
+        var user = _dbContext.Model.FindEntityType(typeof(User))!;
+        Assert.Contains(user.GetKeys(), key =>
+            key.Properties.Select(p => p.Name).SequenceEqual(new[] { nameof(User.Id), nameof(User.TenantId) }));
+
+        foreach (var grantType in new[] { typeof(ClearanceApprover), typeof(ClearanceViewer) })
+        {
+            var fk = Assert.Single(_dbContext.Model.FindEntityType(grantType)!.GetForeignKeys());
+            Assert.Equal(typeof(User), fk.PrincipalEntityType.ClrType);
+            Assert.Equal(new[] { "UserId", "TenantId" }, fk.Properties.Select(p => p.Name));
+            Assert.Equal(new[] { nameof(User.Id), nameof(User.TenantId) }, fk.PrincipalKey.Properties.Select(p => p.Name));
+            Assert.Equal(DeleteBehavior.Restrict, fk.DeleteBehavior);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(GrantTables))]
+    public async Task Grant_WithUsersOwnTenant_IsAccepted(string table)
+    {
+        var user = await SeedUserAsync(_tenantId, $"{table}-user");
+
+        AddGrant(table, _tenantId, user.Id);
+        await _dbContext.SaveChangesAsync();
+        _dbContext.ChangeTracker.Clear();
+
+        Assert.Equal(1, await CountGrantsAsync(table, user.Id));
+    }
+
+    [Theory]
+    [MemberData(nameof(GrantTables))]
+    public async Task Grant_WithAnotherTenantThanItsUser_IsRejected(string table)
+    {
+        var user = await SeedUserAsync(_tenantId, $"{table}-user");
+        await SeedUserAsync(_otherTenantId, $"{table}-other-tenant-user");
+
+        AddGrant(table, _otherTenantId, user.Id);
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+        _dbContext.ChangeTracker.Clear();
+
+        Assert.Equal(0, await CountGrantsAsync(table, user.Id));
+    }
+
+    [Theory]
+    [MemberData(nameof(GrantTables))]
+    public async Task DeletingUserWithGrant_IsRestricted(string table)
+    {
+        var user = await SeedUserAsync(_tenantId, $"{table}-user");
+        AddGrant(table, _tenantId, user.Id);
+        await _dbContext.SaveChangesAsync();
+        _dbContext.ChangeTracker.Clear();
+
+        _dbContext.Users.Remove(await _dbContext.Users.SingleAsync(u => u.Id == user.Id));
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+        _dbContext.ChangeTracker.Clear();
+
+        Assert.True(await _dbContext.Users.AnyAsync(u => u.Id == user.Id));
+        Assert.Equal(1, await CountGrantsAsync(table, user.Id));
+    }
+
+    [Theory]
+    [MemberData(nameof(GrantTables))]
+    public async Task MovingUserWithGrantToAnotherTenant_IsRejected(string table)
+    {
+        var user = await SeedUserAsync(_tenantId, $"{table}-user");
+        AddGrant(table, _tenantId, user.Id);
+        await _dbContext.SaveChangesAsync();
+        _dbContext.ChangeTracker.Clear();
+
+        await Assert.ThrowsAsync<SqliteException>(() => _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE users SET tenant_id = {_otherTenantId} WHERE id = {user.Id}"));
+
+        Assert.Equal(_tenantId, (await _dbContext.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id)).TenantId);
+        Assert.Equal(1, await CountGrantsAsync(table, user.Id));
+    }
+
+    private void AddGrant(string table, Guid tenantId, Guid userId)
+    {
+        if (table == "approver")
+            _dbContext.ClearanceApprovers.Add(CreateApprover(tenantId, userId));
+        else
+            _dbContext.ClearanceViewers.Add(new ClearanceViewer { Id = Guid.NewGuid(), TenantId = tenantId, UserId = userId, CreatedAt = DateTime.UtcNow });
+    }
+
+    private Task<int> CountGrantsAsync(string table, Guid userId) =>
+        table == "approver"
+            ? _dbContext.ClearanceApprovers.IgnoreQueryFilters().CountAsync(a => a.UserId == userId)
+            : _dbContext.ClearanceViewers.IgnoreQueryFilters().CountAsync(v => v.UserId == userId);
 
     private static T With<T>(T value, Action<T> configure)
     {

@@ -314,10 +314,10 @@ namespace MaintTrack.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
-
                     b.HasIndex("TenantId", "UserId")
                         .IsUnique();
+
+                    b.HasIndex("UserId", "TenantId");
 
                     b.ToTable("clearance_approvers", (string)null);
                 });
@@ -406,6 +406,35 @@ namespace MaintTrack.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_clearance_items_status", "status IN ('pending', 'approved', 'rejected')");
                         });
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Clearance.ClearanceViewer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "TenantId");
+
+                    b.ToTable("clearance_viewers", (string)null);
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.Forklifts.Forklift", b =>
@@ -1435,7 +1464,8 @@ namespace MaintTrack.Infrastructure.Migrations
                 {
                     b.HasOne("MaintTrack.Domain.Users.User", "User")
                         .WithMany()
-                        .HasForeignKey("UserId")
+                        .HasForeignKey("UserId", "TenantId")
+                        .HasPrincipalKey("Id", "TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -1459,6 +1489,18 @@ namespace MaintTrack.Infrastructure.Migrations
                         .HasForeignKey("MorningRoundV2SubmissionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_clearance_items_morning_round_v2_submissions_submission_id");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Clearance.ClearanceViewer", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Users.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId", "TenantId")
+                        .HasPrincipalKey("Id", "TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.Forklifts.ForkliftFault", b =>

@@ -10,7 +10,9 @@ import { ClearanceStatusBadge } from './ClearanceStatusBadge';
 /**
  * Clearance approval status of a source report. Kept separate from the technician's
  * safety declaration (MaintenanceEntry.isSafeToOperate), which it never reads or changes.
- * Renders nothing for reports that have no Clearance item (e.g. a fully normal Morning Round).
+ * Renders nothing for reports that have no Clearance item (e.g. a fully normal Morning Round)
+ * and for users without a Clearance view or approver assignment (403). Nothing is rendered
+ * until the first response arrives, so unauthorized users never see the panel appear.
  */
 export function ClearanceStatusPanel({
   sourceType,
@@ -21,34 +23,34 @@ export function ClearanceStatusPanel({
 }) {
   const { t, language } = useLanguage();
   const [data, setData] = useState<ClearanceSourceItemResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [hasNoItem, setHasNoItem] = useState(false);
 
   const load = useCallback(async () => {
-    setIsLoading(true);
     setHasError(false);
     try {
       setData(await getClearanceBySource(sourceType, sourceId));
       setHasNoItem(false);
     } catch (err) {
       setData(null);
-      if (err instanceof ApiError && err.status === 404) {
+      if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
         setHasNoItem(true);
       } else {
         console.error(err);
         setHasError(true);
       }
-    } finally {
-      setIsLoading(false);
     }
   }, [sourceType, sourceId]);
 
   useEffect(() => {
+    setData(null);
+    setHasNoItem(false);
     load();
   }, [load]);
 
-  if (hasNoItem) {
+  // No data and no error means the request is still pending (or the report has no item, or the
+  // user may not view it): render nothing rather than a heading or loading state.
+  if (hasNoItem || (!data && !hasError)) {
     return null;
   }
 
@@ -57,8 +59,7 @@ export function ClearanceStatusPanel({
   return (
     <div className="bg-white border border-neutral-200 rounded-lg p-4">
       <h2 className="text-sm font-semibold text-neutral-900 mb-3">{t('clearance.sectionTitle')}</h2>
-      {isLoading && !item && <div className="text-sm text-neutral-500">{t('common.loading')}</div>}
-      {hasError && !isLoading && (
+      {hasError && (
         <div className="text-sm" style={{ color: '#b91c1c' }}>
           {t('clearance.statusLoadFailed')}
         </div>

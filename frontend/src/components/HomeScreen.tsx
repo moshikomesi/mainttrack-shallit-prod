@@ -42,52 +42,65 @@ export function HomeScreen({
   // null = unknown (loading or failed); the badge is shown only for a confirmed count > 0.
   const [pendingClearanceCount, setPendingClearanceCount] = useState<number | null>(null);
 
+  // Access is re-read on mount, focus, tab visibility and Clearance changes, because grants can be
+  // revoked while Home stays open. The count is requested only while access allows viewing.
   useEffect(() => {
     let cancelled = false;
-    getClearanceAccess()
-      .then((access) => {
-        if (!cancelled) setCanViewClearance(access.canView);
-      })
-      .catch((err) => console.error(err));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    let inFlight = false;
+    let rerunRequested = false;
 
-  useEffect(() => {
-    if (!canViewClearance) {
-      setPendingClearanceCount(null);
-      return;
-    }
-
-    let cancelled = false;
-    let requestId = 0;
-    const refresh = () => {
-      const currentRequest = ++requestId;
-      getPendingClearanceCount()
-        .then((count) => {
-          if (!cancelled && currentRequest === requestId) setPendingClearanceCount(count);
-        })
-        .catch((err) => {
+    const run = async () => {
+      inFlight = true;
+      try {
+        const access = await getClearanceAccess();
+        if (cancelled) return;
+        setCanViewClearance(access.canView);
+        if (!access.canView) {
+          setPendingClearanceCount(null);
+          return;
+        }
+        try {
+          const count = await getPendingClearanceCount();
+          if (!cancelled) setPendingClearanceCount(count);
+        } catch (err) {
           console.error(err);
-          if (!cancelled && currentRequest === requestId) setPendingClearanceCount(null);
-        });
+          if (!cancelled) setPendingClearanceCount(null);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        inFlight = false;
+        if (rerunRequested && !cancelled) {
+          rerunRequested = false;
+          void run();
+        }
+      }
+    };
+
+    // Focus and visibilitychange usually fire together: join a refresh already in flight.
+    const refreshOnReturn = () => {
+      if (!inFlight) void run();
     };
     const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') refresh();
+      if (document.visibilityState === 'visible') refreshOnReturn();
+    };
+    // A decision made during a refresh may not be reflected in it, so run once more afterwards.
+    const refreshAfterChange = () => {
+      if (inFlight) rerunRequested = true;
+      else void run();
     };
 
-    refresh();
-    window.addEventListener(CLEARANCE_CHANGED_EVENT, refresh);
-    window.addEventListener('focus', refresh);
+    void run();
+    window.addEventListener(CLEARANCE_CHANGED_EVENT, refreshAfterChange);
+    window.addEventListener('focus', refreshOnReturn);
     document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
       cancelled = true;
-      window.removeEventListener(CLEARANCE_CHANGED_EVENT, refresh);
-      window.removeEventListener('focus', refresh);
+      window.removeEventListener(CLEARANCE_CHANGED_EVENT, refreshAfterChange);
+      window.removeEventListener('focus', refreshOnReturn);
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
-  }, [canViewClearance]);
+  }, []);
 
   // Single menu entry per feature; the feature flag decides which screen (legacy vs
   // new) the user is routed to. Never show both a v1 and v2 entry at once.

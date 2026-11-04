@@ -37,6 +37,8 @@ public sealed class ClearanceApiIntegrationTests : IAsyncLifetime
     private readonly Guid _tenantId = Guid.NewGuid();
     private readonly Guid _otherTenantId = Guid.NewGuid();
     private readonly Guid _approverId = Guid.NewGuid();
+    private readonly Guid _viewerId = Guid.NewGuid();
+    private readonly Guid _foreignViewerId = Guid.NewGuid();
     private readonly Guid _workerId = Guid.NewGuid();
     private readonly Guid _superAdminId = Guid.NewGuid();
     private readonly Guid _managerId = Guid.NewGuid();
@@ -99,7 +101,11 @@ public sealed class ClearanceApiIntegrationTests : IAsyncLifetime
             CreateUser(_workerId, "worker", UserRole.Worker),
             CreateUser(_superAdminId, "admin", UserRole.SuperAdmin),
             CreateUser(_managerId, "manager", UserRole.Manager),
-            CreateUser(_otherWorkerId, "other-worker", UserRole.Worker));
+            CreateUser(_otherWorkerId, "other-worker", UserRole.Worker),
+            CreateUser(_viewerId, "viewer", UserRole.Worker));
+        var foreignViewer = CreateUser(_foreignViewerId, "foreign-viewer", UserRole.Worker);
+        foreignViewer.TenantId = _otherTenantId;
+        _dbContext.Users.Add(foreignViewer);
 
         _dbContext.ClearanceApprovers.Add(new ClearanceApprover
         {
@@ -108,6 +114,10 @@ public sealed class ClearanceApiIntegrationTests : IAsyncLifetime
             UserId = _approverId,
             CreatedAt = DateTime.UtcNow
         });
+
+        _dbContext.ClearanceViewers.AddRange(
+            new ClearanceViewer { Id = Guid.NewGuid(), TenantId = _tenantId, UserId = _viewerId, CreatedAt = DateTime.UtcNow },
+            new ClearanceViewer { Id = Guid.NewGuid(), TenantId = _otherTenantId, UserId = _foreignViewerId, CreatedAt = DateTime.UtcNow });
 
         _dbContext.Machines.AddRange(
             new Machine { Id = _machineId, TenantId = _tenantId, Name = "machine.local", Code = "L1", IsActive = true, CreatedAt = DateTime.UtcNow },
@@ -205,16 +215,41 @@ public sealed class ClearanceApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task GetQueue_AsUnassignedSuperAdmin_ReadsButCannotApprove()
+    public async Task GetQueue_AsUnassignedSuperAdmin_Returns403()
     {
         Authenticate(_superAdminId, _tenantId, UserRole.SuperAdmin);
+
+        var response = await _client.GetAsync("/api/v1/clearance");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task GetQueue_AsAssignedViewer_ReadsButCannotApprove()
+    {
+        Authenticate(_viewerId, _tenantId, UserRole.Worker);
 
         var response = await _client.GetAsync("/api/v1/clearance");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<ClearanceQueueResponse>(JsonOptions);
         Assert.False(body!.CanApprove);
-        Assert.Single(body.Items);
+        Assert.Equal(_itemId, Assert.Single(body.Items).Id);
+    }
+
+    [Fact]
+    public async Task Decide_AsAssignedViewer_Returns403AndItemStaysPending()
+    {
+        Authenticate(_viewerId, _tenantId, UserRole.Worker);
+
+        var approve = await _client.PostAsync($"/api/v1/clearance/{_itemId}/approve", null);
+        var reject = await _client.PostAsJsonAsync($"/api/v1/clearance/{_itemId}/reject", new { note = "x" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, approve.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, reject.StatusCode);
+        await AssertItemPendingAsync(_itemId);
+        Assert.False(await _dbContext.AuditLogs.IgnoreQueryFilters().AnyAsync(a => a.EntityId == _itemId));
     }
 
     [Fact]
@@ -429,6 +464,22 @@ public sealed class ClearanceApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task RevokedViewer_SameToken_LosesQueueBySourceAndAccessOnNextRequest()
+    {
+        var userId = await AddGrantedUserAsync("revocable-viewer", approver: false);
+
+        await ClearanceGrantRevocationScenarios.RevokingViewerGrant_RemovesAllClearanceAccessOnNextRequest(RevocationSetup(userId));
+    }
+
+    [Fact]
+    public async Task RevokedApproverWithViewerGrant_SameToken_KeepsViewButCannotDecide()
+    {
+        var userId = await AddGrantedUserAsync("revocable-approver", approver: true);
+
+        await ClearanceGrantRevocationScenarios.RevokingApproverGrant_KeepsViewAccessButForbidsDecisions(RevocationSetup(userId));
+    }
+
+    [Fact]
     public async Task Decide_ItemOfAnotherTenant_Returns404LikeMissingItem()
     {
         Authenticate(_approverId, _tenantId, UserRole.Worker);
@@ -565,13 +616,15 @@ public sealed class ClearanceApiIntegrationTests : IAsyncLifetime
 
     [Theory]
     [InlineData("approver", true, true)]
-    [InlineData("admin", true, false)]
+    [InlineData("viewer", true, false)]
+    [InlineData("admin", false, false)]
     [InlineData("worker", false, false)]
     public async Task GetAccess_ReflectsDatabaseAssignment(string who, bool canView, bool canApprove)
     {
         var (userId, role) = who switch
         {
             "approver" => (_approverId, UserRole.Worker),
+            "viewer" => (_viewerId, UserRole.Worker),
             "admin" => (_superAdminId, UserRole.SuperAdmin),
             _ => (_workerId, UserRole.Worker)
         };
@@ -597,7 +650,7 @@ public sealed class ClearanceApiIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task GetBySource_ReturnsItemForTenantReportAnd404OtherwiseWithoutLeaking()
     {
-        Authenticate(_workerId, _tenantId, UserRole.Worker);
+        Authenticate(_viewerId, _tenantId, UserRole.Worker);
 
         var found = await _client.GetAsync($"/api/v1/clearance/source/maintenance_entry/{_entryId}");
         var noItem = await _client.GetAsync($"/api/v1/clearance/source/maintenance_entry/{_legacyEntryId}");
@@ -612,6 +665,50 @@ public sealed class ClearanceApiIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, foreign.StatusCode);
         Assert.Equal(await noItem.Content.ReadAsStringAsync(), await foreign.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.BadRequest, invalidType.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("worker")]
+    [InlineData("manager")]
+    [InlineData("superadmin")]
+    [InlineData("forged-superadmin-claim")]
+    [InlineData("viewer-of-another-tenant")]
+    public async Task GetBySource_WithoutGrantInThisTenant_Returns403WithoutClearanceData(string who)
+    {
+        Authenticate(_approverId, _tenantId, UserRole.Worker);
+        Assert.Equal(HttpStatusCode.OK, (await _client.PostAsJsonAsync(
+            $"/api/v1/clearance/{_itemId}/reject", new { note = "Replace the seal" })).StatusCode);
+
+        var (userId, role) = who switch
+        {
+            "worker" => (_workerId, UserRole.Worker),
+            "manager" => (_managerId, UserRole.Manager),
+            "superadmin" => (_superAdminId, UserRole.SuperAdmin),
+            "forged-superadmin-claim" => (_workerId, UserRole.SuperAdmin),
+            _ => (_foreignViewerId, UserRole.Worker)
+        };
+        Authenticate(userId, _tenantId, role);
+
+        var known = await _client.GetAsync($"/api/v1/clearance/source/maintenance_entry/{_entryId}");
+        var unknown = await _client.GetAsync($"/api/v1/clearance/source/maintenance_entry/{Guid.NewGuid()}");
+        var queue = await _client.GetAsync("/api/v1/clearance?status=rejected");
+
+        foreach (var response in new[] { known, unknown, queue })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Empty(await response.Content.ReadAsStringAsync());
+        }
+    }
+
+    [Fact]
+    public async Task GetBySource_ViewerOfAnotherTenant_InOwnTenant_SeesNothingOfThisTenant()
+    {
+        Authenticate(_foreignViewerId, _otherTenantId, UserRole.Worker);
+
+        var response = await _client.GetAsync($"/api/v1/clearance/source/maintenance_entry/{_entryId}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.DoesNotContain(_itemId.ToString(), await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -837,6 +934,25 @@ public sealed class ClearanceApiIntegrationTests : IAsyncLifetime
         SubmittedAt = DateTime.UtcNow,
         CreatedAt = DateTime.UtcNow
     };
+
+    private async Task<Guid> AddGrantedUserAsync(string username, bool approver)
+    {
+        var userId = Guid.NewGuid();
+        _dbContext.Users.Add(CreateUser(userId, username, UserRole.Worker));
+        _dbContext.ClearanceViewers.Add(
+            new ClearanceViewer { Id = Guid.NewGuid(), TenantId = _tenantId, UserId = userId, CreatedAt = DateTime.UtcNow });
+        if (approver)
+        {
+            _dbContext.ClearanceApprovers.Add(
+                new ClearanceApprover { Id = Guid.NewGuid(), TenantId = _tenantId, UserId = userId, CreatedAt = DateTime.UtcNow });
+        }
+        await _dbContext.SaveChangesAsync();
+        _dbContext.ChangeTracker.Clear();
+        return userId;
+    }
+
+    private ClearanceRevocationSetup RevocationSetup(Guid userId) =>
+        new(_client, _dbContext, () => Authenticate(userId, _tenantId, UserRole.Worker), _tenantId, userId, _entryId, _itemId);
 
     private void Authenticate(Guid userId, Guid tenantId, UserRole role)
     {

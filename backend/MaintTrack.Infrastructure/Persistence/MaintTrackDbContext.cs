@@ -63,6 +63,8 @@ public class MaintTrackDbContext : DbContext
 
     public DbSet<ClearanceApprover> ClearanceApprovers => Set<ClearanceApprover>();
 
+    public DbSet<ClearanceViewer> ClearanceViewers => Set<ClearanceViewer>();
+
     public DbSet<MaintenanceEntry> MaintenanceEntries => Set<MaintenanceEntry>();
 
     public DbSet<MaintenanceEntryImage> MaintenanceEntryImages => Set<MaintenanceEntryImage>();
@@ -178,6 +180,9 @@ public class MaintTrackDbContext : DbContext
         entity.ToTable("users");
 
         entity.HasKey(x => x.Id);
+
+        // Target of tenant-scoped foreign keys: a referencing row must carry its user's tenant.
+        entity.HasAlternateKey(x => new { x.Id, x.TenantId });
 
         entity.Property(x => x.Id)
             .HasColumnName("id");
@@ -966,10 +971,45 @@ public class MaintTrackDbContext : DbContext
 
         approver.HasOne(x => x.User)
             .WithMany()
-            .HasForeignKey(x => x.UserId)
+            .HasForeignKey(x => new { x.UserId, x.TenantId })
+            .HasPrincipalKey(u => new { u.Id, u.TenantId })
             .OnDelete(DeleteBehavior.Restrict);
 
         approver.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+
+        var viewer = modelBuilder.Entity<ClearanceViewer>();
+
+        viewer.ToTable("clearance_viewers");
+
+        viewer.HasKey(x => x.Id);
+
+        viewer.Property(x => x.Id)
+            .HasColumnName("id");
+
+        viewer.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        viewer.Property(x => x.UserId)
+            .HasColumnName("user_id")
+            .IsRequired();
+
+        viewer.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        viewer.Ignore(x => x.UpdatedAt);
+
+        viewer.HasIndex(x => new { x.TenantId, x.UserId })
+            .IsUnique();
+
+        viewer.HasOne(x => x.User)
+            .WithMany()
+            .HasForeignKey(x => new { x.UserId, x.TenantId })
+            .HasPrincipalKey(u => new { u.Id, u.TenantId })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        viewer.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
     private void ConfigureTreatment(ModelBuilder modelBuilder)

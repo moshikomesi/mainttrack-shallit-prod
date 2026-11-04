@@ -295,7 +295,9 @@ function AppRoutes() {
             )
           }
         />
-        {/* Visibility is decided by the API (assigned approvers, SuperAdmin view-only). */}
+        {/* Access is decided by the API from explicit per-user, tenant-scoped grants: viewing needs a
+            clearance_viewers or clearance_approvers row, deciding needs clearance_approvers.
+            No role, including SuperAdmin, grants access on its own. */}
         <Route
           path="/clearance"
           element={

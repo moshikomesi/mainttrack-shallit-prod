@@ -75,7 +75,7 @@ The Clearance tables come from migration `20261019172521_AddClearanceFoundation`
 MAINTTRACK_DEV_CLEARANCE_PASSWORD='<choose a local password>' ./scripts/seed-clearance-dev.sh
 ```
 
-Additive and idempotent (never touches existing users; refuses non-`*_dev` databases). Creates `clearance.approver` (Worker, assigned approver), `clearance.submitter` (Worker, not an approver), `clearance.manager` (Manager, not an approver) and `clearance.other` (approver in the second local tenant). `admin` stays an unassigned SuperAdmin: it can view the queue but not decide.
+Additive and idempotent (never touches existing users; refuses non-`*_dev` databases). Creates `clearance.approver` (Worker, assigned approver), `clearance.submitter` (Worker, not an approver), `clearance.manager` (Manager, not an approver) and `clearance.other` (approver in the second local tenant). `admin` stays an unassigned SuperAdmin: no role grants Clearance access, so it sees no queue or Clearance status. View-only access is a `clearance_viewers` row (migration `20261104190405_AddClearanceViewersAndGrantTenantKeys`); approvers also view.
 
 Every Maintenance Log submission creates one pending Clearance item; a Morning Round V2 submission creates one only when at least one machine is marked `fail`. The queue is at `/clearance` (home tile "Clearance Approvals").
 

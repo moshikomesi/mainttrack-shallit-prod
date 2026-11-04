@@ -32,6 +32,7 @@ public sealed class ClearanceDecisionIntegrityTests : IAsyncLifetime
     private ClearanceService _service = null!;
 
     private User _approver = null!;
+    private User _viewer = null!;
     private User _worker = null!;
     private User _superAdmin = null!;
     private User _manager = null!;
@@ -58,12 +59,17 @@ public sealed class ClearanceDecisionIntegrityTests : IAsyncLifetime
             new Role { Id = (int)UserRole.Manager, Name = "Manager" },
             new Role { Id = (int)UserRole.SuperAdmin, Name = "SuperAdmin" });
         _approver = AddUser(_tenantId, "approver", UserRole.Worker);
+        _viewer = AddUser(_tenantId, "viewer", UserRole.Worker);
         _worker = AddUser(_tenantId, "worker", UserRole.Worker);
         _superAdmin = AddUser(_tenantId, "admin", UserRole.SuperAdmin);
         _manager = AddUser(_tenantId, "manager", UserRole.Manager);
         _dbContext.ClearanceApprovers.Add(new ClearanceApprover
         {
             Id = Guid.NewGuid(), TenantId = _tenantId, UserId = _approver.Id, CreatedAt = DateTime.UtcNow
+        });
+        _dbContext.ClearanceViewers.Add(new ClearanceViewer
+        {
+            Id = Guid.NewGuid(), TenantId = _tenantId, UserId = _viewer.Id, CreatedAt = DateTime.UtcNow
         });
         _machineId = AddMachine(_tenantId, "M1");
         _otherTenantMachineId = AddMachine(_otherTenantId, "X1");
@@ -188,8 +194,11 @@ public sealed class ClearanceDecisionIntegrityTests : IAsyncLifetime
         ActAs(_approver);
         Assert.Equal(new ClearanceAccessDto(true, true), await _service.GetAccessAsync(CancellationToken.None));
 
-        ActAs(_superAdmin);
+        ActAs(_viewer);
         Assert.Equal(new ClearanceAccessDto(true, false), await _service.GetAccessAsync(CancellationToken.None));
+
+        ActAs(_superAdmin);
+        Assert.Equal(new ClearanceAccessDto(false, false), await _service.GetAccessAsync(CancellationToken.None));
 
         ActAs(_manager);
         Assert.Equal(new ClearanceAccessDto(false, false), await _service.GetAccessAsync(CancellationToken.None));
@@ -199,6 +208,10 @@ public sealed class ClearanceDecisionIntegrityTests : IAsyncLifetime
 
         await _dbContext.Users.Where(u => u.Id == _approver.Id).ExecuteUpdateAsync(s => s.SetProperty(u => u.IsActive, false));
         ActAs(_approver);
+        Assert.Equal(new ClearanceAccessDto(false, false), await _service.GetAccessAsync(CancellationToken.None));
+
+        await _dbContext.Users.Where(u => u.Id == _viewer.Id).ExecuteUpdateAsync(s => s.SetProperty(u => u.IsActive, false));
+        ActAs(_viewer);
         Assert.Equal(new ClearanceAccessDto(false, false), await _service.GetAccessAsync(CancellationToken.None));
     }
 
@@ -219,18 +232,77 @@ public sealed class ClearanceDecisionIntegrityTests : IAsyncLifetime
         var (entryId, itemId) = await SeedEntryWithItemAsync(_tenantId, _machineId);
         await _service.RejectAsync(itemId, "Replace the seal", CancellationToken.None);
 
-        ActAs(_worker);
-        var asWorker = await _service.GetBySourceAsync(ClearanceSourceType.MaintenanceEntry, entryId, CancellationToken.None);
+        ActAs(_viewer);
+        var asViewer = await _service.GetBySourceAsync(ClearanceSourceType.MaintenanceEntry, entryId, CancellationToken.None);
         ActAs(_approver);
         var asApprover = await _service.GetBySourceAsync("MAINTENANCE_ENTRY", entryId, CancellationToken.None);
 
-        Assert.NotNull(asWorker);
-        Assert.False(asWorker!.CanApprove);
-        Assert.Equal(ClearanceStatus.Rejected, asWorker.Item.Status);
-        Assert.Equal("approver", asWorker.Item.DecidedByName);
-        Assert.Equal("Replace the seal", asWorker.Item.DecisionNote);
-        Assert.NotNull(asWorker.Item.DecidedAt);
+        Assert.NotNull(asViewer);
+        Assert.False(asViewer!.CanApprove);
+        Assert.Equal(ClearanceStatus.Rejected, asViewer.Item.Status);
+        Assert.Equal("approver", asViewer.Item.DecidedByName);
+        Assert.Equal("Replace the seal", asViewer.Item.DecisionNote);
+        Assert.NotNull(asViewer.Item.DecidedAt);
         Assert.True(asApprover!.CanApprove);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Worker)]
+    [InlineData(UserRole.Manager)]
+    [InlineData(UserRole.SuperAdmin)]
+    public async Task BySource_ActiveTenantUserWithoutGrant_IsForbiddenEvenWithKnownReportId(UserRole role)
+    {
+        var (entryId, itemId) = await SeedEntryWithItemAsync(_tenantId, _machineId);
+        await _service.RejectAsync(itemId, "Replace the seal", CancellationToken.None);
+        ActAs(role switch { UserRole.Manager => _manager, UserRole.SuperAdmin => _superAdmin, _ => _worker });
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => _service.GetBySourceAsync(ClearanceSourceType.MaintenanceEntry, entryId, CancellationToken.None));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => _service.GetBySourceAsync(ClearanceSourceType.MaintenanceEntry, Guid.NewGuid(), CancellationToken.None));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => _service.GetBySourceAsync("treatment", entryId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task BySource_GrantsFromAnotherTenant_DoNotAuthorize()
+    {
+        var (entryId, _) = await SeedEntryWithItemAsync(_tenantId, _machineId);
+        var foreignViewer = AddUser(_otherTenantId, "foreign-viewer", UserRole.Worker);
+        var foreignApprover = AddUser(_otherTenantId, "foreign-approver", UserRole.Worker);
+        _dbContext.ClearanceViewers.Add(
+            new ClearanceViewer { Id = Guid.NewGuid(), TenantId = _otherTenantId, UserId = foreignViewer.Id, CreatedAt = DateTime.UtcNow });
+        _dbContext.ClearanceApprovers.Add(
+            new ClearanceApprover { Id = Guid.NewGuid(), TenantId = _otherTenantId, UserId = foreignApprover.Id, CreatedAt = DateTime.UtcNow });
+        await _dbContext.SaveChangesAsync();
+        _dbContext.ChangeTracker.Clear();
+
+        _dbContext.ClearanceViewers.Add(
+            new ClearanceViewer { Id = Guid.NewGuid(), TenantId = _otherTenantId, UserId = _worker.Id, CreatedAt = DateTime.UtcNow });
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+        _dbContext.ChangeTracker.Clear();
+
+        foreach (var user in new[] { foreignViewer, foreignApprover, _worker })
+        {
+            ActAs(user);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(
+                () => _service.GetBySourceAsync(ClearanceSourceType.MaintenanceEntry, entryId, CancellationToken.None));
+            Assert.Equal(new ClearanceAccessDto(false, false), await _service.GetAccessAsync(CancellationToken.None));
+        }
+    }
+
+    [Fact]
+    public async Task Viewer_CannotDecide()
+    {
+        var (_, itemId) = await SeedEntryWithItemAsync(_tenantId, _machineId);
+        ActAs(_viewer);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => _service.ApproveAsync(itemId, CancellationToken.None));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => _service.RejectAsync(itemId, "x", CancellationToken.None));
+
+        var item = await LoadItemAsync(itemId);
+        Assert.Equal(ClearanceStatus.Pending, item.Status);
+        Assert.Null(item.DecisionNote);
     }
 
     [Fact]

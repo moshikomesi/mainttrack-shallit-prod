@@ -8,7 +8,6 @@ using MaintTrack.Application.Abstractions;
 using MaintTrack.Application.Clearance;
 using MaintTrack.Domain.Audit;
 using MaintTrack.Domain.Clearance;
-using MaintTrack.Domain.Users;
 using MaintTrack.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -48,7 +47,7 @@ public sealed class ClearanceService : IClearanceService
     {
         var tenantId = EnsureTenantResolved();
         var access = await GetCurrentUserAccessAsync(tenantId, ct);
-        return new ClearanceAccessDto(CanViewQueue(access), access?.IsApprover ?? false);
+        return new ClearanceAccessDto(access?.CanView ?? false, access?.IsApprover ?? false);
     }
 
     public async Task<ClearanceQueueResponse> GetQueueAsync(ClearanceQueueQuery query, CancellationToken ct)
@@ -56,13 +55,8 @@ public sealed class ClearanceService : IClearanceService
         ArgumentNullException.ThrowIfNull(query);
 
         var tenantId = EnsureTenantResolved();
+        var access = await EnsureCanViewAsync(tenantId, ct);
         var status = NormalizeStatus(query.Status);
-
-        var access = await GetCurrentUserAccessAsync(tenantId, ct);
-        if (!CanViewQueue(access))
-        {
-            throw new UnauthorizedAccessException("You are not allowed to view the Clearance queue.");
-        }
 
         var pageNumber = query.PageNumber is > 0 ? query.PageNumber.Value : 1;
         var pageSize = query.PageSize is > 0 ? Math.Min(query.PageSize.Value, MaxPageSize) : DefaultPageSize;
@@ -102,12 +96,16 @@ public sealed class ClearanceService : IClearanceService
             .ToListAsync(ct);
 
         var dtos = await ToDtosAsync(tenantId, page, ct);
-        return new ClearanceQueueResponse(dtos, pageNumber, pageSize, totalCount, access!.IsApprover);
+        return new ClearanceQueueResponse(dtos, pageNumber, pageSize, totalCount, access.IsApprover);
     }
 
     public async Task<ClearanceSourceItemResponse?> GetBySourceAsync(string sourceType, Guid sourceId, CancellationToken ct)
     {
         var tenantId = EnsureTenantResolved();
+
+        // Checked before the lookup so users without a grant learn nothing about the report.
+        var access = await EnsureCanViewAsync(tenantId, ct);
+
         var normalizedType = sourceType?.Trim().ToLowerInvariant() switch
         {
             ClearanceSourceType.MaintenanceEntry => ClearanceSourceType.MaintenanceEntry,
@@ -116,12 +114,6 @@ public sealed class ClearanceService : IClearanceService
                 $"Invalid source type. Allowed values: {ClearanceSourceType.MaintenanceEntry}, {ClearanceSourceType.MorningRoundV2}.",
                 nameof(sourceType))
         };
-
-        var access = await GetCurrentUserAccessAsync(tenantId, ct);
-        if (access is null)
-        {
-            throw new UnauthorizedAccessException("You are not allowed to view Clearance information.");
-        }
 
         var items = _dbContext.ClearanceItems.AsNoTracking()
             .Where(c => c.TenantId == tenantId && c.SourceType == normalizedType);
@@ -288,11 +280,19 @@ public sealed class ClearanceService : IClearanceService
     }
 
     /// <summary>
-    /// Approvers read the queue; SuperAdmin (role read from the database, not the JWT) may view it
-    /// like other reports but gets CanApprove only through an assignment.
+    /// Clearance information (queue, status, decision details) is visible only to active users with a
+    /// clearance_viewers or clearance_approvers assignment in this tenant. Roles never grant it.
     /// </summary>
-    private static bool CanViewQueue(CurrentUserAccess? access) =>
-        access is not null && (access.IsApprover || access.RoleId == (int)UserRole.SuperAdmin);
+    private async Task<CurrentUserAccess> EnsureCanViewAsync(Guid tenantId, CancellationToken ct)
+    {
+        var access = await GetCurrentUserAccessAsync(tenantId, ct);
+        if (access is null || !access.CanView)
+        {
+            throw new UnauthorizedAccessException("You are not allowed to view Clearance information.");
+        }
+
+        return access;
+    }
 
     public Task<ClearanceDecisionDto> ApproveAsync(Guid id, CancellationToken ct) =>
         DecideAsync(id, ClearanceStatus.Approved, note: null, ct);
@@ -412,17 +412,20 @@ public sealed class ClearanceService : IClearanceService
 
     /// <summary>
     /// Reads the current user from the database on every call: the user must exist in this
-    /// tenant and be active. Approver status requires an assignment row in the same tenant.
+    /// tenant and be active. Approver and viewer status each require an assignment row in the same tenant.
     /// </summary>
     private async Task<CurrentUserAccess?> GetCurrentUserAccessAsync(Guid tenantId, CancellationToken ct)
     {
         var userId = _currentUserContext.UserId;
         var activeApprovers = ClearanceApproverRules.ActiveApprovers(_dbContext, tenantId);
+        var viewers = _dbContext.ClearanceViewers.Where(v => v.TenantId == tenantId);
 
         return await _dbContext.Users
             .AsNoTracking()
             .Where(u => u.Id == userId && u.TenantId == tenantId && u.IsActive)
-            .Select(u => new CurrentUserAccess(u.RoleId, activeApprovers.Any(a => a.Id == u.Id)))
+            .Select(u => new CurrentUserAccess(
+                activeApprovers.Any(a => a.Id == u.Id),
+                viewers.Any(v => v.UserId == u.Id)))
             .FirstOrDefaultAsync(ct);
     }
 
@@ -443,7 +446,11 @@ public sealed class ClearanceService : IClearanceService
         };
     }
 
-    private sealed record CurrentUserAccess(int RoleId, bool IsApprover);
+    /// <summary>Approvers can see what they decide on; viewers can see without deciding.</summary>
+    private sealed record CurrentUserAccess(bool IsApprover, bool IsViewer)
+    {
+        public bool CanView => IsApprover || IsViewer;
+    }
 
     private sealed class QueueRow
     {

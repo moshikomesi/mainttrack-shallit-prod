@@ -145,14 +145,58 @@ public sealed class ClearanceServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UnassignedSuperAdmin_CanReadQueueButCannotApprove()
+    public async Task UnassignedSuperAdmin_CannotReadQueueOrApprove()
     {
         var admin = await SeedUserAsync(_tenantId, "admin", UserRole.SuperAdmin);
         ActAs(admin);
 
+        Assert.False(await _service.IsCurrentUserApproverAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => _service.GetQueueAsync(new ClearanceQueueQuery(), CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(UserRole.Worker)]
+    [InlineData(UserRole.SuperAdmin)]
+    public async Task AssignedViewer_CanReadQueueButIsNotApprover(UserRole role)
+    {
+        var viewer = await SeedUserAsync(_tenantId, $"viewer-{role}", role);
+        await SeedViewerAsync(_tenantId, viewer.Id);
+        ActAs(viewer);
+
         var response = await _service.GetQueueAsync(new ClearanceQueueQuery(), CancellationToken.None);
 
         Assert.False(response.CanApprove);
+        Assert.False(await _service.IsCurrentUserApproverAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task InactiveAssignedViewer_CannotReadQueue()
+    {
+        var viewer = await SeedUserAsync(_tenantId, "inactive-viewer", UserRole.Worker);
+        await SeedViewerAsync(_tenantId, viewer.Id);
+        await SetActiveAsync(viewer.Id, false);
+        ActAs(viewer);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => _service.GetQueueAsync(new ClearanceQueueQuery(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ViewerAssignmentInAnotherTenant_DoesNotGrantView()
+    {
+        await Assert.ThrowsAsync<DbUpdateException>(() => SeedViewerAsync(_otherTenantId, _worker.Id));
+        _dbContext.ChangeTracker.Clear();
+        var foreignViewer = await SeedUserAsync(_otherTenantId, "foreign-viewer", UserRole.Worker);
+        await SeedViewerAsync(_otherTenantId, foreignViewer.Id);
+
+        ActAs(_worker);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => _service.GetQueueAsync(new ClearanceQueueQuery(), CancellationToken.None));
+
+        ActAs(foreignViewer);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => _service.GetQueueAsync(new ClearanceQueueQuery(), CancellationToken.None));
     }
 
     [Fact]
@@ -187,9 +231,10 @@ public sealed class ClearanceServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AssignmentRowInAnotherTenant_DoesNotGrantApproval()
+    public async Task AssignmentRowInAnotherTenant_IsRejectedAndDoesNotGrantApproval()
     {
-        await SeedApproverAsync(_otherTenantId, _worker.Id);
+        await Assert.ThrowsAsync<DbUpdateException>(() => SeedApproverAsync(_otherTenantId, _worker.Id));
+        _dbContext.ChangeTracker.Clear();
         ActAs(_worker);
 
         Assert.False(await _service.IsCurrentUserApproverAsync(CancellationToken.None));
@@ -648,7 +693,7 @@ public sealed class ClearanceServiceTests : IAsyncLifetime
 
     public static TheoryData<string> NonApproverScenarios => new()
     {
-        "worker", "superadmin", "manager", "inactive-approver", "other-tenant-assignment", "foreign-approver"
+        "worker", "superadmin", "manager", "inactive-approver", "foreign-approver", "viewer"
     };
 
     [Theory]
@@ -826,14 +871,14 @@ public sealed class ClearanceServiceTests : IAsyncLifetime
             case "inactive-approver":
                 await SetActiveAsync(_approver.Id, false);
                 break;
-            case "other-tenant-assignment":
-                await SeedApproverAsync(_otherTenantId, _worker.Id);
-                ActAs(_worker);
-                break;
             case "foreign-approver":
                 var foreign = await SeedUserAsync(_otherTenantId, "foreign-approver", UserRole.SuperAdmin);
                 await SeedApproverAsync(_otherTenantId, foreign.Id);
                 ActAs(foreign);
+                break;
+            case "viewer":
+                await SeedViewerAsync(_tenantId, _worker.Id);
+                ActAs(_worker);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(scenario), scenario, null);
@@ -891,6 +936,19 @@ public sealed class ClearanceServiceTests : IAsyncLifetime
     private async Task SeedApproverAsync(Guid tenantId, Guid userId)
     {
         _dbContext.ClearanceApprovers.Add(new ClearanceApprover
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            UserId = userId,
+            CreatedAt = DateTime.UtcNow
+        });
+        await _dbContext.SaveChangesAsync();
+        _dbContext.ChangeTracker.Clear();
+    }
+
+    private async Task SeedViewerAsync(Guid tenantId, Guid userId)
+    {
+        _dbContext.ClearanceViewers.Add(new ClearanceViewer
         {
             Id = Guid.NewGuid(),
             TenantId = tenantId,

@@ -9,22 +9,23 @@ public interface IClearanceService
     Task<bool> IsCurrentUserApproverAsync(CancellationToken ct);
 
     /// <summary>
-    /// Queue visibility (active approvers and SuperAdmins) and decision right (active approvers only).
+    /// Visibility (active users with a clearance_viewers or clearance_approvers assignment) and
+    /// decision right (active approvers only). Roles never grant either.
     /// </summary>
     Task<ClearanceAccessDto> GetAccessAsync(CancellationToken ct);
 
     /// <summary>
     /// Tenant-scoped, paginated Clearance queue.
-    /// Throws <see cref="ArgumentException"/> for an unknown status and
-    /// <see cref="UnauthorizedAccessException"/> when the user may not view the queue.
+    /// Throws <see cref="UnauthorizedAccessException"/> (checked first) when the user may not view
+    /// Clearance information and <see cref="ArgumentException"/> for an unknown status.
     /// </summary>
     Task<ClearanceQueueResponse> GetQueueAsync(ClearanceQueueQuery query, CancellationToken ct);
 
     /// <summary>
     /// The Clearance item of a source report in the current tenant, or null when the report has none.
-    /// Readable by any active user of the tenant, like the report itself.
-    /// Throws <see cref="ArgumentException"/> for an unknown source type and
-    /// <see cref="UnauthorizedAccessException"/> when the user is not active in the tenant.
+    /// Same visibility as the queue. Throws <see cref="UnauthorizedAccessException"/> (checked first)
+    /// when the user may not view Clearance information and <see cref="ArgumentException"/> for an
+    /// unknown source type.
     /// </summary>
     Task<ClearanceSourceItemResponse?> GetBySourceAsync(string sourceType, Guid sourceId, CancellationToken ct);
 
