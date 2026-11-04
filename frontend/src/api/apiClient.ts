@@ -9,6 +9,17 @@ const getBaseUrl = (): string => {
   return url.replace(/\/$/, '');
 };
 
+/** Thrown for non-2xx responses; the message is the raw response body, as before. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
@@ -71,7 +82,7 @@ export async function apiFetch<T>(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
+    throw new ApiError(text || `HTTP ${response.status}`, response.status);
   }
 
   if (response.status === 204) {

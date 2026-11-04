@@ -20,6 +20,8 @@ import { ReportDetailsScreen } from './components/ReportDetailsScreen';
 import type { ReportType, ReportsListReturnContext } from './types/reports';
 import { SettingsScreen } from './components/SettingsScreen';
 import { MachineParameterPhotosScreen } from './components/MachineParameterPhotosScreen';
+import { ClearanceScreen } from './components/ClearanceScreen';
+import type { ClearanceItem } from './types/clearance';
 import { useAutoUpdate } from './hooks/useAutoUpdate';
 
 const screenIdToPath: Record<string, string> = {
@@ -35,8 +37,19 @@ const screenIdToPath: Record<string, string> = {
   forklift: '/forklift',
   annualPlans: '/annual-plans',
   reports: '/reports',
+  clearance: '/clearance',
   settings: '/settings',
 };
+
+function clearanceReviewPath(item: ClearanceItem): string | null {
+  if (item.sourceType === 'maintenance_entry' && item.maintenanceEntryId) {
+    return `/clearance/review/maintenance/${item.maintenanceEntryId}`;
+  }
+  if (item.sourceType === 'morning_round_v2' && item.morningRoundV2SubmissionId) {
+    return `/clearance/review/morning-v2/${item.morningRoundV2SubmissionId}`;
+  }
+  return null;
+}
 
 function AppRoutes() {
   const navigate = useNavigate();
@@ -282,6 +295,33 @@ function AppRoutes() {
             )
           }
         />
+        {/* Visibility is decided by the API (assigned approvers, SuperAdmin view-only). */}
+        <Route
+          path="/clearance"
+          element={
+            !isLoggedIn ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <ClearanceScreen
+                onBack={() => navigate('/home')}
+                onOpenReport={(item) => {
+                  const path = clearanceReviewPath(item);
+                  if (path) navigate(path);
+                }}
+              />
+            )
+          }
+        />
+        <Route
+          path="/clearance/review/:type/:id"
+          element={
+            !isLoggedIn ? (
+              <Navigate to="/login" replace />
+            ) : (
+              <ClearanceReviewRoute />
+            )
+          }
+        />
         <Route
           path="/settings"
           element={
@@ -327,6 +367,20 @@ function ReportDetailsRoute({
 
   return (
     <ReportDetailsScreen reportId={id} reportType={type} onBack={handleBack} />
+  );
+}
+
+/** Source report opened from the Clearance queue; approvers need not have report-list access. */
+function ClearanceReviewRoute() {
+  const { id, type } = useParams<{ id: string; type: string }>();
+  const navigate = useNavigate();
+
+  if (!id || (type !== 'maintenance' && type !== 'morning-v2')) {
+    return <Navigate to="/clearance" replace />;
+  }
+
+  return (
+    <ReportDetailsScreen reportId={id} reportType={type} onBack={() => navigate('/clearance')} />
   );
 }
 

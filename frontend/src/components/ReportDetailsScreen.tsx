@@ -41,7 +41,7 @@ import type { MaintenanceEntryDto } from '../types/maintenance';
 import type { TreatmentDto } from '../types/treatment';
 import type { MachineDto } from '../services/machinesService';
 import { safeImageSrc } from '../utils/safeUrl';
-
+import { ClearanceStatusPanel } from './clearance/ClearanceStatusPanel';
 interface ReportDetailsScreenProps {
   reportId: string;
   reportType: 'morning' | 'morning-v2' | 'maintenance' | 'treatments';
@@ -173,8 +173,7 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
   const [v1FocusedItemLabel, setV1FocusedItemLabel] = useState<string | null>(null);
   const [isLoadingMorningV2, setIsLoadingMorningV2] = useState(false);
   const [loadErrorMorningV2, setLoadErrorMorningV2] = useState<string | null>(null);
-  const [maintenanceReport, setMaintenanceReport] = useState<MaintenanceEntryDto | null>(null);
-  const [isLoadingMaintenance, setIsLoadingMaintenance] = useState(false);
+  const [maintenanceReport, setMaintenanceReport] = useState<MaintenanceEntryDto | null>(null);  const [isLoadingMaintenance, setIsLoadingMaintenance] = useState(false);
   const [loadErrorMaintenance, setLoadErrorMaintenance] = useState<string | null>(null);
   const [hierarchy, setHierarchy] = useState<HierarchyArray[]>([]);
   const [treatmentReport, setTreatmentReport] = useState<TreatmentDto | null>(null);
@@ -782,6 +781,8 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
 
             {morningV2Report && !isLoadingMorningV2 && !loadErrorMorningV2 && (
               <>
+                <ClearanceStatusPanel sourceType="morning_round_v2" sourceId={reportId} />
+
                 <MorningRoundV2HierarchyView
                   arrays={morningV2HierarchyArrays}
                   expandedArrays={expandedArrays}
@@ -913,14 +914,6 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                         {maintenanceReport.employeeName}
                       </span>
                     </div>
-                    <div>
-                      <span className="text-neutral-600">{t('log.clearance')}: </span>
-                      <span className="text-neutral-900">
-                        {maintenanceReport.isSafeToOperate
-                          ? t('common.complete')
-                          : t('common.pending')}
-                      </span>
-                    </div>
                     {maintenanceImages.length > 0 && (
                       <div className="mt-3 space-y-2">
                         {showImageCarousel && (
@@ -1006,16 +999,7 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                   </div>
                 </div>
 
-                {/* Declaration */}
-                <div className="bg-neutral-100 border border-neutral-300 rounded-lg p-4">
-                  <p className="text-sm text-neutral-900 font-medium mb-2">
-                    {t('log.declaration')}
-                  </p>
-                  <p className="text-sm text-neutral-700">
-                    <span className="font-semibold">{t('log.name')}: </span>
-                    {maintenanceReport.employeeName}
-                  </p>
-                </div>
+                <ClearanceStatusPanel sourceType="maintenance_entry" sourceId={reportId} />
               </>
             )}
           </>

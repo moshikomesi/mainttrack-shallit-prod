@@ -1,9 +1,14 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { ClipboardCheck, ClipboardList, FileText, SlidersHorizontal, Truck, List, Calendar, Droplets, type LucideIcon } from 'lucide-react';
+import { ClipboardCheck, ClipboardList, FileText, SlidersHorizontal, Truck, List, Calendar, Droplets, ShieldCheck, type LucideIcon } from 'lucide-react';
 import { AppHeader } from './AppHeader';
+import {
+  CLEARANCE_CHANGED_EVENT,
+  getClearanceAccess,
+  getPendingClearanceCount,
+} from '../services/clearanceService';
 
-import { canSeeForklift, canSeeMaintenance, canSeeMorningRound, canSeeReports, canSeeTreatments, canSeeAnnualPlans } from '../auth/roles';
+import { FORKLIFT_REPORTS_UI_ENABLED, canSeeForklift, canSeeMaintenance, canSeeMorningRound, canSeeReports, canSeeTreatments, canSeeAnnualPlans } from '../auth/roles';
 
 type HomeMenuItem = {
   id: string;
@@ -12,6 +17,7 @@ type HomeMenuItem = {
   color: string;
   iconBoxStyle?: CSSProperties;
   visible: boolean;
+  badgeCount?: number | null;
 };
 
 interface HomeScreenProps {
@@ -32,6 +38,56 @@ export function HomeScreen({
   onLogout,
 }: HomeScreenProps) {
   const { t } = useLanguage();
+  const [canViewClearance, setCanViewClearance] = useState(false);
+  // null = unknown (loading or failed); the badge is shown only for a confirmed count > 0.
+  const [pendingClearanceCount, setPendingClearanceCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getClearanceAccess()
+      .then((access) => {
+        if (!cancelled) setCanViewClearance(access.canView);
+      })
+      .catch((err) => console.error(err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canViewClearance) {
+      setPendingClearanceCount(null);
+      return;
+    }
+
+    let cancelled = false;
+    let requestId = 0;
+    const refresh = () => {
+      const currentRequest = ++requestId;
+      getPendingClearanceCount()
+        .then((count) => {
+          if (!cancelled && currentRequest === requestId) setPendingClearanceCount(count);
+        })
+        .catch((err) => {
+          console.error(err);
+          if (!cancelled && currentRequest === requestId) setPendingClearanceCount(null);
+        });
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+
+    refresh();
+    window.addEventListener(CLEARANCE_CHANGED_EVENT, refresh);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(CLEARANCE_CHANGED_EVENT, refresh);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [canViewClearance]);
 
   // Single menu entry per feature; the feature flag decides which screen (legacy vs
   // new) the user is routed to. Never show both a v1 and v2 entry at once.
@@ -85,7 +141,7 @@ export function HomeScreen({
       label: t('home.forkliftReport'),
       icon: Truck,
       color: 'bg-amber-700',
-      visible: canSeeForklift(userRoleId),
+      visible: FORKLIFT_REPORTS_UI_ENABLED && canSeeForklift(userRoleId),
     },
     {
       id: 'annualPlans',
@@ -94,7 +150,14 @@ export function HomeScreen({
       color: 'bg-purple-700',
       visible: canSeeAnnualPlans(userRoleId),
     },
-    // "View reports" is forklift-related in this app.
+    {
+      id: 'clearance',
+      label: t('home.clearance'),
+      icon: ShieldCheck,
+      color: 'bg-teal-700',
+      visible: canViewClearance,
+      badgeCount: pendingClearanceCount,
+    },
     {
       id: 'reports',
       label: t('home.viewReports'),
@@ -102,7 +165,6 @@ export function HomeScreen({
       color: 'bg-slate-700',
       visible: canSeeReports(userRoleId),
     },
-
   ].filter((item) => item.visible);
 
   return (
@@ -113,17 +175,46 @@ export function HomeScreen({
       <div className="p-6 space-y-4">
         {menuItems.map((item) => {
           const Icon = item.icon;
+          const badgeCount = item.badgeCount ?? 0;
+          const badgeLabel =
+            badgeCount > 0 ? t('clearance.pendingCountLabel').replace('{count}', String(badgeCount)) : undefined;
           return (
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
+              aria-label={badgeLabel ? `${item.label}, ${badgeLabel}` : undefined}
               className="w-full bg-white border border-neutral-200 rounded-lg p-6 flex items-center gap-4 hover:bg-neutral-50 active:bg-neutral-100 transition-colors"
             >
               <div
                 className={`${item.color} w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0`}
-                style={item.iconBoxStyle}
+                style={{ ...item.iconBoxStyle, position: 'relative' }}
               >
                 <Icon className="w-6 h-6 text-white" />
+                {badgeCount > 0 && (
+                  <span
+                    data-testid={`${item.id}-badge`}
+                    title={badgeLabel}
+                    aria-hidden
+                    style={{
+                      position: 'absolute',
+                      top: -6,
+                      insetInlineEnd: -6,
+                      minWidth: 20,
+                      height: 20,
+                      padding: '0 5px',
+                      borderRadius: 9999,
+                      backgroundColor: '#dc2626',
+                      color: '#ffffff',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      lineHeight: '20px',
+                      textAlign: 'center',
+                      boxShadow: '0 0 0 2px #ffffff',
+                    }}
+                  >
+                    {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
               </div>
               <span className="text-lg font-medium text-neutral-900">
                 {item.label}

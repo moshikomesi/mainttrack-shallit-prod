@@ -22,4 +22,10 @@ export const endpoints = {
   annualPlans: '/v1/annual-plans',
   annualPlansTasks: '/v1/annual-plans/tasks',
   annualPlansTechnicians: '/v1/annual-plans/technicians',
+  clearance: '/v1/clearance',
+  clearanceAccess: '/v1/clearance/access',
+  clearanceBySource: (sourceType: string, sourceId: string) =>
+    `/v1/clearance/source/${sourceType}/${sourceId}`,
+  clearanceApprove: (id: string) => `/v1/clearance/${id}/approve`,
+  clearanceReject: (id: string) => `/v1/clearance/${id}/reject`,
 } as const;
