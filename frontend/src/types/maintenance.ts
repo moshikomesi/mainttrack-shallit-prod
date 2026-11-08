@@ -34,16 +34,6 @@ export interface CreateMaintenanceEntryRequest {
   isSafeToOperate: boolean;
 }
 
-export interface UpdateMaintenanceEntryRequest {
-  maintenanceTypeId: string;
-  description?: string | null;
-  imageUrl?: string | null;
-  sparePartsUsed?: string | null;
-  employeeName: string;
-  workHours: number;
-  isSafeToOperate: boolean;
-}
-
 export type MaintenanceLogEntry = {
   id: string;
   date: string;

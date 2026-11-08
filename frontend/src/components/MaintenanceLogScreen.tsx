@@ -597,7 +597,7 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
           );
         })}
 
-        {/* Declaration + signature (checkbox UI-only; not sent to API) */}
+        {/* Report confirmation + signature (checkbox UI-only; not sent to API) */}
         <div
           className={`bg-neutral-100 rounded-lg p-4 space-y-3 border-2 transition-colors ${
             !isDeclarationConfirmed
@@ -605,7 +605,7 @@ export function MaintenanceLogScreen({ onSubmit }: MaintenanceLogScreenProps) {
               : 'border border-neutral-300'
           }`}
         >
-          <p className="text-sm text-neutral-900 font-medium">{t('log.declaration')}</p>
+          <p className="text-sm text-neutral-900 font-medium">{t('log.maintenanceRowDeclarationLabel')}</p>
           <div>
             <div className="flex items-start gap-3 mt-3">
               <input

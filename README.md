@@ -67,6 +67,26 @@ Local dev login: `admin` / `admin` (see `frontend/src/dev/devAuthBootstrap.ts`).
 
 Idempotent SQL seed for the Pilot Factory tenant (`11111111-1111-1111-1111-111111111111`). Populates 7 arrays with machines using translation keys only. Safe to re-run. Verify via `GET /api/v2/morning-round` or `/morning-round-v2` in the UI.
 
+**Clearance approval workflow (local testing):**
+
+The Clearance tables come from migration `20261019172521_AddClearanceFoundation` (applied by `dotnet ef database update` above; additive only). Approvers are assigned per tenant in `clearance_approvers` — roles alone grant nothing. Add local test users and approver assignments:
+
+```bash
+MAINTTRACK_DEV_CLEARANCE_PASSWORD='<choose a local password>' ./scripts/seed-clearance-dev.sh
+```
+
+Additive and idempotent (never touches existing users; refuses non-`*_dev` databases). Creates `clearance.approver` (Worker, assigned approver), `clearance.submitter` (Worker, not an approver), `clearance.manager` (Manager, not an approver) and `clearance.other` (approver in the second local tenant). `admin` stays an unassigned SuperAdmin: no role grants Clearance access, so it sees no queue or Clearance status. View-only access is a `clearance_viewers` row (migration `20261104190405_AddClearanceViewersAndGrantTenantKeys`); approvers also view.
+
+Every Maintenance Log submission creates one pending Clearance item; a Morning Round V2 submission creates one only when at least one machine is marked `fail`. The queue is at `/clearance` (home tile "Clearance Approvals").
+
+Opt-in PostgreSQL concurrency tests (create and drop their own `mainttrack_clearance_test_*` database; never touch other databases):
+
+```bash
+cd backend
+MAINTTRACK_CLEARANCE_PG_SERVER='Host=127.0.0.1;Port=5432;Database=postgres;Username=<local superuser>' \
+  dotnet test MaintTrack.Tests/MaintTrack.Tests.csproj --filter "FullyQualifiedName~ClearancePostgres"
+```
+
 ### Backend
 
 ```bash

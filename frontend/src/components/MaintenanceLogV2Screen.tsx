@@ -587,7 +587,7 @@ export function MaintenanceLogV2Screen({ onSubmit }: MaintenanceLogScreenProps) 
               : 'border border-neutral-300'
           }`}
         >
-          <p className="text-sm text-neutral-900 font-medium">{t('log.declaration')}</p>
+          <p className="text-sm text-neutral-900 font-medium">{t('log.maintenanceRowDeclarationLabel')}</p>
           <div>
             <div className="flex items-start gap-3 mt-3">
               <input

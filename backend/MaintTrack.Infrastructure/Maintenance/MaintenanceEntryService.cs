@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using MaintTrack.Application.Abstractions;
 using MaintTrack.Application.Maintenance;
 using MaintTrack.Domain.Audit;
+using MaintTrack.Domain.Clearance;
 using MaintTrack.Domain.Maintenance;
 using MaintTrack.Domain.Users;
 using MaintTrack.Infrastructure.Persistence;
@@ -115,105 +116,36 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
             CreatedAt = entry.CreatedAt
         }, ct);
 
+        // Saved in the same SaveChanges (one transaction) as the entry: neither exists without the other.
+        await _dbContext.ClearanceItems.AddAsync(new ClearanceItem
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            SourceType = ClearanceSourceType.MaintenanceEntry,
+            MaintenanceEntryId = entryId,
+            Status = ClearanceStatus.Pending,
+            SubmittedByUserId = userId,
+            SubmittedAt = entry.CreatedAt,
+            CreatedAt = entry.CreatedAt
+        }, ct);
+
         await _dbContext.SaveChangesAsync(ct);
         return entryId;
     }
 
-    public async Task UpdateAsync(Guid id, UpdateMaintenanceEntryRequest request, CancellationToken ct)
-    {
-        if (_tenantContext.TenantId is null)
-            throw new InvalidOperationException("Tenant not resolved.");
-
-        var entry = await _dbContext.MaintenanceEntries.FirstOrDefaultAsync(e => e.Id == id, ct);
-        if (entry is null)
-            throw new InvalidOperationException("Maintenance entry not found.");
-
-        if (entry.CreatedByUserId != _currentUserContext.UserId &&
-            _currentUserContext.RoleId != (int)UserRole.SuperAdmin)
-            throw new UnauthorizedAccessException("You are not allowed to update this maintenance entry.");
-
-        if (request.ImageUrl is not null &&
-            !string.Equals(entry.ImageUrl, request.ImageUrl, StringComparison.Ordinal))
-            throw new InvalidOperationException("Images cannot be changed after a maintenance entry is submitted.");
-
-        if (request.MaintenanceTypeId == Guid.Empty)
-            throw new InvalidOperationException("Maintenance type is required.");
-
-        var (description, maintenanceTypeId) = await ResolveDescriptionForTypeAsync(
-            request.MaintenanceTypeId,
-            request.Description,
-            ct);
-
-        entry.MaintenanceTypeId = maintenanceTypeId;
-        entry.Description = description;
-        entry.SparePartsUsed = request.SparePartsUsed;
-        entry.EmployeeName = request.EmployeeName;
-        entry.WorkHours = request.WorkHours;
-        entry.IsSafeToOperate = request.IsSafeToOperate;
-        entry.UpdatedAt = DateTime.UtcNow;
-
-        await _dbContext.AuditLogs.AddAsync(new AuditLog
-        {
-            Id = Guid.NewGuid(),
-            TenantId = entry.TenantId,
-            UserId = _currentUserContext.UserId,
-            Action = "maintenance_updated",
-            EntityName = "MaintenanceEntry",
-            EntityId = entry.Id,
-            CreatedAt = DateTime.UtcNow
-        }, ct);
-
-        await _dbContext.SaveChangesAsync(ct);
-    }
-
     public async Task DeleteAsync(Guid id, CancellationToken ct)
     {
-        if (_tenantContext.TenantId is null)
+        if (_tenantContext.TenantId is not Guid tenantId)
             throw new InvalidOperationException("Tenant not resolved.");
 
-        var entry = await _dbContext.MaintenanceEntries
-            .Include(e => e.AdditionalImages)
-            .FirstOrDefaultAsync(e => e.Id == id, ct);
-        if (entry is null || _currentUserContext.RoleId != (int)UserRole.SuperAdmin)
+        var entryExists = await _dbContext.MaintenanceEntries
+            .AsNoTracking()
+            .AnyAsync(e => e.Id == id && e.TenantId == tenantId, ct);
+        if (!entryExists || _currentUserContext.RoleId != (int)UserRole.SuperAdmin)
             throw new UnauthorizedAccessException("You are not allowed to delete this maintenance entry.");
 
-        var imageUrls = entry.AdditionalImages
-            .OrderBy(image => image.SortOrder)
-            .Select(image => image.ImageUrl)
-            .Prepend(entry.ImageUrl)
-            .Where(url => !string.IsNullOrWhiteSpace(url))
-            .Cast<string>()
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-
-        _dbContext.MaintenanceEntries.Remove(entry);
-        await _dbContext.AuditLogs.AddAsync(new AuditLog
-        {
-            Id = Guid.NewGuid(),
-            TenantId = entry.TenantId,
-            UserId = _currentUserContext.UserId,
-            Action = "maintenance_deleted",
-            EntityName = "MaintenanceEntry",
-            EntityId = entry.Id,
-            CreatedAt = DateTime.UtcNow
-        }, ct);
-        await _dbContext.SaveChangesAsync(ct);
-
-        foreach (var imageUrl in imageUrls)
-        {
-            try
-            {
-                await _fileStorageService.DeleteAsync(imageUrl, CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Maintenance entry {MaintenanceEntryId} was deleted, but image {ImageUrl} could not be removed from storage.",
-                    id,
-                    imageUrl);
-            }
-        }
+        // Business rule: maintenance reports are never deleted (hard, soft or cascading).
+        throw new InvalidOperationException("Maintenance reports cannot be deleted.");
     }
 
     public async Task<IReadOnlyList<MaintenanceEntryDto>> GetAsync(GetMaintenanceEntriesRequest request, CancellationToken ct)
@@ -351,46 +283,5 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
                 "Description must be empty unless maintenance type code is \"other\".");
 
         return (string.Empty, maintenanceTypeId);
-    }
-
-    public async Task MigrateBase64ImagesAsync(CancellationToken ct)
-    {
-        var entries = await _dbContext.MaintenanceEntries
-            .Where(x => x.ImageUrl != null && x.ImageUrl.StartsWith("data:image"))
-            .ToListAsync(ct);
-
-        foreach (var entry in entries)
-        {
-            try
-            {
-                var base64 = entry.ImageUrl!;
-
-                var commaIndex = base64.IndexOf(',');
-                var data = base64.Substring(commaIndex + 1);
-
-                var bytes = Convert.FromBase64String(data);
-
-                using var stream = new MemoryStream(bytes);
-
-                var contentType = base64.Contains("png") ? "image/png" : "image/jpeg";
-
-                var fileName = $"{entry.Id}.jpg";
-
-                var url = await _fileStorageService.UploadAsync(
-                    stream,
-                    fileName,
-                    contentType,
-                    entry.TenantId.ToString(),
-                    ct);
-
-                entry.ImageUrl = url;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed for entry {entry.Id}: {ex.Message}");
-            }
-        }
-
-        await _dbContext.SaveChangesAsync(ct);
     }
 }

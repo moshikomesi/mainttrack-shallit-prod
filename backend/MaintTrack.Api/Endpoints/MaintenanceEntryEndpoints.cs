@@ -110,26 +110,12 @@ public static class MaintenanceEntryEndpoints
             .WithName("CreateMaintenanceEntry")
             .WithOpenApi();
 
-        app.MapPut("/api/maintenance/{id:guid}", async (
-                Guid id,
-                UpdateMaintenanceEntryRequest request,
-                [FromServices] ICurrentUserContext currentUserContext,
-                [FromServices] IMaintenanceEntryService maintenanceEntryService,
-                CancellationToken cancellationToken) =>
-            {
-                if (currentUserContext.RoleId < 1)
-                    return Results.Forbid();
-
-                try
-                {
-                    await maintenanceEntryService.UpdateAsync(id, request, cancellationToken);
-                    return Results.NoContent();
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    return Results.Forbid();
-                }
-            })
+        // Submitted maintenance reports are immutable for every user and role. The route is kept only
+        // to answer old clients explicitly; it reads no body and touches no data.
+        app.MapPut("/api/maintenance/{id:guid}", (Guid id) =>
+                Results.Json(
+                    new { error = "Maintenance reports cannot be edited after submission." },
+                    statusCode: StatusCodes.Status403Forbidden))
             .RequireRateLimiting("api")
             .RequireAuthorization()
             .WithName("UpdateMaintenanceEntry")

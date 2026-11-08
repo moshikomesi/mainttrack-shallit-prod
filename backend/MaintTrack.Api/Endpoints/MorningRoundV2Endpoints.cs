@@ -103,6 +103,10 @@ public static class MorningRoundV2Endpoints
                     var result = await morningRoundV2Service.SubmitAsync(request, cancellationToken);
                     return Results.Ok(result);
                 }
+                catch (MorningRoundV2AlreadySubmittedException ex)
+                {
+                    return Results.Conflict(new { error = ex.Message });
+                }
                 catch (ArgumentException ex)
                 {
                     return Results.BadRequest(new { error = ex.Message });

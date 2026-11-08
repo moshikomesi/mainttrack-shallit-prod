@@ -8,7 +8,9 @@ using System.Threading.Tasks;
 using MaintTrack.Application.Abstractions;
 using MaintTrack.Application.Hierarchy;
 using MaintTrack.Application.MorningRoundV2;
+using MaintTrack.Domain.Clearance;
 using MaintTrack.Domain.MorningRoundV2;
+using MaintTrack.Infrastructure.Clearance;
 using MaintTrack.Infrastructure.Hierarchy;
 using MaintTrack.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -25,15 +27,18 @@ public sealed class MorningRoundV2Service : IMorningRoundV2Service
     private readonly MaintTrackDbContext _dbContext;
     private readonly ITenantContext _tenantContext;
     private readonly ICurrentUserContext _currentUserContext;
+    private readonly IBusinessCalendar _businessCalendar;
 
     public MorningRoundV2Service(
         MaintTrackDbContext dbContext,
         ITenantContext tenantContext,
-        ICurrentUserContext currentUserContext)
+        ICurrentUserContext currentUserContext,
+        IBusinessCalendar businessCalendar)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
         _currentUserContext = currentUserContext ?? throw new ArgumentNullException(nameof(currentUserContext));
+        _businessCalendar = businessCalendar ?? throw new ArgumentNullException(nameof(businessCalendar));
     }
 
     public async Task<IReadOnlyList<MorningRoundV2ArrayDto>> GetChecklistAsync(CancellationToken ct)
@@ -89,11 +94,9 @@ public sealed class MorningRoundV2Service : IMorningRoundV2Service
             throw new ArgumentException("At least one checklist item is required.");
         }
 
-        var submittedAt = request.Timestamp.Kind == DateTimeKind.Unspecified
-            ? DateTime.SpecifyKind(request.Timestamp, DateTimeKind.Utc)
-            : request.Timestamp.ToUniversalTime();
-
-        var reportDate = DateOnly.FromDateTime(submittedAt);
+        // The client timestamp is ignored so a request cannot target another day.
+        var submittedAt = _businessCalendar.UtcNow;
+        var reportDate = _businessCalendar.GetBusinessDate(submittedAt);
 
         var machineIds = request.Items.Select(i => i.MachineId).Distinct().ToList();
         var validMachineIds = await _dbContext.Machines
@@ -124,38 +127,65 @@ public sealed class MorningRoundV2Service : IMorningRoundV2Service
             .ToList();
 
         var itemsJson = JsonSerializer.Serialize(normalizedItems, JsonOptions);
-        var now = DateTime.UtcNow;
 
-        var existing = await _dbContext.MorningRoundV2Submissions
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.ReportDate == reportDate, ct);
-
-        if (existing is null)
+        // One submission per tenant per business day; an existing submission is never modified.
+        if (await SubmissionExistsAsync(tenantId, reportDate, ct))
         {
-            existing = new MorningRoundV2Submission
+            throw new MorningRoundV2AlreadySubmittedException(reportDate);
+        }
+
+        var submission = new MorningRoundV2Submission
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            ReportDate = reportDate,
+            SubmittedAt = submittedAt,
+            SubmittedByUserId = _currentUserContext.UserId,
+            ItemsJson = itemsJson,
+            CreatedAt = submittedAt
+        };
+        await _dbContext.MorningRoundV2Submissions.AddAsync(submission, ct);
+
+        // Only when a machine was reported abnormal; saved in the same SaveChanges (one transaction).
+        if (normalizedItems.Any(i => MorningRoundV2Findings.IsAbnormal(i.Status)))
+        {
+            await _dbContext.ClearanceItems.AddAsync(new ClearanceItem
             {
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
-                ReportDate = reportDate,
-                SubmittedAt = submittedAt,
+                SourceType = ClearanceSourceType.MorningRoundV2,
+                MorningRoundV2SubmissionId = submission.Id,
+                Status = ClearanceStatus.Pending,
                 SubmittedByUserId = _currentUserContext.UserId,
-                ItemsJson = itemsJson,
-                CreatedAt = now
-            };
-
-            await _dbContext.MorningRoundV2Submissions.AddAsync(existing, ct);
+                SubmittedAt = submittedAt,
+                CreatedAt = submittedAt
+            }, ct);
         }
-        else
+
+        try
         {
-            existing.SubmittedAt = submittedAt;
-            existing.SubmittedByUserId = _currentUserContext.UserId;
-            existing.ItemsJson = itemsJson;
-            existing.UpdatedAt = now;
+            await _dbContext.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // A concurrent first submission won the unique (tenant_id, report_date) index.
+            if (!await SubmissionExistsAsync(tenantId, reportDate, CancellationToken.None))
+            {
+                throw;
+            }
+
+            _dbContext.ChangeTracker.Clear();
+            throw new MorningRoundV2AlreadySubmittedException(reportDate);
         }
 
-        await _dbContext.SaveChangesAsync(ct);
-
-        return new SubmitMorningRoundV2Response(existing.Id, existing.ReportDate, existing.SubmittedAt);
+        return new SubmitMorningRoundV2Response(submission.Id, submission.ReportDate, submission.SubmittedAt);
     }
+
+    private Task<bool> SubmissionExistsAsync(Guid tenantId, DateOnly reportDate, CancellationToken ct) =>
+        _dbContext.MorningRoundV2Submissions
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .AnyAsync(s => s.TenantId == tenantId && s.ReportDate == reportDate, ct);
 
     public async Task<MorningRoundV2ReportDto?> GetReportByIdAsync(Guid reportId, CancellationToken ct)
     {

@@ -269,7 +269,7 @@ export function MaintenanceTasksLogScreen({ onSubmit }: MaintenanceLogScreenProp
               onChange={(event) => setIsConfirmed(event.target.checked)}
               className="w-4 h-4 mt-1 shrink-0 rounded border-neutral-300 text-neutral-800 focus:ring-neutral-800"
             />
-            <span>{t('log.declaration')}</span>
+            <span>{t('log.maintenanceRowDeclarationLabel')}</span>
           </label>
         </div>
       </div>

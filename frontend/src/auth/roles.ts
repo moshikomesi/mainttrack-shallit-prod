@@ -6,6 +6,9 @@ export const ROLE = {
 
 export type RoleId = (typeof ROLE)[keyof typeof ROLE];
 
+/** Temporarily hides the Forklift Reports entry points (Home tile, Reports type). Set to true to restore them. */
+export const FORKLIFT_REPORTS_UI_ENABLED = false;
+
 export function canSeeForklift(roleId: number): boolean {
   return roleId >= ROLE.MANAGER;
 }

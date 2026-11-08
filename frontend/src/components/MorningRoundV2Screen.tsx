@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
+import { ApiError } from '../api/apiClient';
 import { useLanguage } from '../context/LanguageContext';
 import { AppHeader } from './AppHeader';
 import { ReadOnlyDateBanner } from './ReadOnlyDateBanner';
@@ -205,7 +206,11 @@ export function MorningRoundV2Screen({ onSubmit }: MorningRoundV2ScreenProps) {
       onSubmit();
     } catch (err) {
       console.error(err);
-      toast.error(t('messages.saveFailed'));
+      if (err instanceof ApiError && err.status === 409) {
+        toast.error(t('morningV2.alreadySubmittedToday'));
+      } else {
+        toast.error(t('messages.saveFailed'));
+      }
     } finally {
       setIsSubmitting(false);
     }

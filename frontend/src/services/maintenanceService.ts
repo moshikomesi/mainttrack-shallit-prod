@@ -3,7 +3,6 @@ import { endpoints } from '../api/endpoints';
 import type {
   MaintenanceEntryDto,
   CreateMaintenanceEntryRequest,
-  UpdateMaintenanceEntryRequest,
 } from '../types/maintenance';
 
 export interface GetMaintenanceParams {
@@ -81,17 +80,6 @@ export async function createMaintenanceWithFile(
     method: 'POST',
     body: formData,
     signal,
-  });
-}
-
-export async function updateMaintenance(
-  id: string,
-  body: UpdateMaintenanceEntryRequest
-): Promise<MaintenanceEntryDto> {
-  return apiFetch(`${endpoints.maintenance}/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
   });
 }
 
