@@ -436,6 +436,103 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, otherDelete.StatusCode);
     }
 
+    [Fact]
+    public async Task ExcludedMachine_IsHiddenOnlyFromMachineParameters()
+    {
+        var morningArrayId = Guid.NewGuid();
+        var excludedMachineId = Guid.NewGuid();
+        _dbContext.Arrays.Add(new WorkGroup
+        {
+            Id = morningArrayId,
+            TenantId = _tenantId,
+            NameKey = "array.morning",
+            SortOrder = 3,
+            IsActive = true,
+            IsMorningRoundEnabled = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        _dbContext.Machines.Add(new Machine
+        {
+            Id = excludedMachineId,
+            TenantId = _tenantId,
+            Name = "machine.excluded",
+            Code = "X1",
+            ArrayId = morningArrayId,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        await _dbContext.SaveChangesAsync();
+        await ExcludeMachineAsync(excludedMachineId);
+
+        var feature = await _client.GetAsync("/api/v1/machine-parameter-photos/hierarchy");
+        Assert.Equal(HttpStatusCode.OK, feature.StatusCode);
+        using (var document = JsonDocument.Parse(await feature.Content.ReadAsStringAsync()))
+        {
+            var featureArrays = document.RootElement.GetProperty("arrays").EnumerateArray().ToList();
+            var morningGroup = Assert.Single(featureArrays, array => array.GetProperty("arrayId").GetGuid() == morningArrayId);
+            Assert.Empty(morningGroup.GetProperty("machines").EnumerateArray());
+            Assert.Contains(
+                featureArrays.SelectMany(array => array.GetProperty("machines").EnumerateArray()),
+                machine => machine.GetProperty("id").GetGuid() == _visibleMachineId);
+        }
+
+        var shared = await _client.GetFromJsonAsync<List<HierarchyArrayDto>>("/api/v1/hierarchy");
+        Assert.NotNull(shared);
+        Assert.Contains(shared.SelectMany(group => group.Machines), machine => machine.Id == excludedMachineId);
+
+        var machines = await _client.GetAsync("/api/v1/machines");
+        Assert.Equal(HttpStatusCode.OK, machines.StatusCode);
+        using (var document = JsonDocument.Parse(await machines.Content.ReadAsStringAsync()))
+        {
+            Assert.Contains(
+                document.RootElement.EnumerateArray(),
+                machine => machine.GetProperty("id").GetGuid() == excludedMachineId);
+        }
+
+        var morningRound = await _client.GetAsync("/api/v2/morning-round");
+        Assert.Equal(HttpStatusCode.OK, morningRound.StatusCode);
+        using (var document = JsonDocument.Parse(await morningRound.Content.ReadAsStringAsync()))
+        {
+            Assert.Contains(
+                document.RootElement.EnumerateArray().SelectMany(array => array.GetProperty("machines").EnumerateArray()),
+                machine => machine.GetProperty("id").GetGuid() == excludedMachineId);
+        }
+    }
+
+    [Fact]
+    public async Task ExcludedMachine_ListUploadAndDeleteAreRejected_PhotoIsPreserved()
+    {
+        await GrantManagerAsync();
+        await ExcludeMachineAsync(_visibleMachineId);
+
+        var list = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_visibleMachineId}");
+        Assert.Equal(HttpStatusCode.BadRequest, list.StatusCode);
+
+        var upload = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_visibleMachineId));
+        Assert.Equal(HttpStatusCode.BadRequest, upload.StatusCode);
+
+        var delete = await _client.DeleteAsync($"/api/v1/machine-parameter-photos/{_photoId}");
+        Assert.Equal(HttpStatusCode.NotFound, delete.StatusCode);
+
+        Assert.Empty(_storage.UploadedUrls);
+        Assert.Empty(_storage.DeletedUrls);
+        _dbContext.ChangeTracker.Clear();
+        var photo = await _dbContext.MachineParameterPhotos.AsNoTracking().SingleAsync(item => item.Id == _photoId);
+        Assert.Equal("/uploads/visible.jpg", photo.ImageUrl);
+    }
+
+    private async Task ExcludeMachineAsync(Guid machineId)
+    {
+        _dbContext.MachineParameterMachineExclusions.Add(new MachineParameterMachineExclusion
+        {
+            Id = Guid.NewGuid(),
+            TenantId = _tenantId,
+            MachineId = machineId,
+            CreatedAt = DateTime.UtcNow
+        });
+        await _dbContext.SaveChangesAsync();
+    }
+
     private async Task GrantManagerAsync()
     {
         _dbContext.MachineParameterPhotoManagers.Add(new MachineParameterPhotoManager
