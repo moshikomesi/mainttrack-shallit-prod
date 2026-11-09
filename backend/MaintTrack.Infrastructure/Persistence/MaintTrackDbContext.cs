@@ -10,6 +10,7 @@ using MaintTrack.Domain.Maintenance;
 using MaintTrack.Domain.MaintenanceTasks;
 using MaintTrack.Domain.MorningRound;
 using MaintTrack.Domain.MorningRoundV2;
+using MaintTrack.Domain.Translations;
 using MaintTrack.Domain.Treatments;
 using MaintTrack.Domain.Tenants;
 using MaintTrack.Domain.Users;
@@ -99,6 +100,10 @@ public class MaintTrackDbContext : DbContext
 
     public DbSet<SummerPlanWorker> AnnualPlanWorkers => Set<SummerPlanWorker>();
 
+    public DbSet<TranslationJob> TranslationJobs => Set<TranslationJob>();
+
+    public DbSet<TranslatedText> TranslatedTexts => Set<TranslatedText>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -125,6 +130,7 @@ public class MaintTrackDbContext : DbContext
         ConfigureForkliftTreatment(modelBuilder);
         ConfigureForkliftFault(modelBuilder);
         ConfigureForkliftInspection(modelBuilder);
+        ConfigureTranslations(modelBuilder);
     }
 
     private static void ConfigureTenants(ModelBuilder modelBuilder)
@@ -1457,6 +1463,159 @@ public class MaintTrackDbContext : DbContext
             .IsRequired();
 
         entity.HasQueryFilter(x => _tenantContext.TenantId == null || x.Report.TenantId == _tenantContext.TenantId);
+    }
+
+    private void ConfigureTranslations(ModelBuilder modelBuilder)
+    {
+        var job = modelBuilder.Entity<TranslationJob>();
+
+        job.ToTable(
+            "translation_jobs",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_translation_jobs_status",
+                    "status IN ('pending', 'processing', 'completed', 'failed')");
+                table.HasCheckConstraint(
+                    "ck_translation_jobs_attempt_count",
+                    "attempt_count >= 0");
+                table.HasCheckConstraint(
+                    "ck_translation_jobs_target_language",
+                    "target_language IN ('he', 'en', 'th')");
+            });
+
+        job.HasKey(x => x.Id);
+
+        job.Property(x => x.Id)
+            .HasColumnName("id");
+
+        job.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        job.Property(x => x.EntityType)
+            .HasColumnName("entity_type")
+            .HasMaxLength(TranslationFieldLimits.EntityTypeMaxLength)
+            .IsRequired();
+
+        job.Property(x => x.EntityId)
+            .HasColumnName("entity_id")
+            .IsRequired();
+
+        job.Property(x => x.FieldName)
+            .HasColumnName("field_name")
+            .HasMaxLength(TranslationFieldLimits.FieldNameMaxLength)
+            .IsRequired();
+
+        job.Property(x => x.SourceText)
+            .HasColumnName("source_text")
+            .IsRequired();
+
+        job.Property(x => x.SourceHash)
+            .HasColumnName("source_hash")
+            .HasMaxLength(TranslationFieldLimits.SourceHashLength)
+            .IsRequired();
+
+        job.Property(x => x.TargetLanguage)
+            .HasColumnName("target_language")
+            .HasMaxLength(TranslationFieldLimits.TargetLanguageMaxLength)
+            .IsRequired();
+
+        job.Property(x => x.Status)
+            .HasColumnName("status")
+            .HasMaxLength(20)
+            .IsRequired();
+
+        job.Property(x => x.AttemptCount)
+            .HasColumnName("attempt_count")
+            .IsRequired();
+
+        job.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        job.Property(x => x.UpdatedAt)
+            .HasColumnName("updated_at");
+
+        job.Property(x => x.ProcessedAt)
+            .HasColumnName("processed_at");
+
+        job.Property(x => x.LastError)
+            .HasColumnName("last_error")
+            .HasMaxLength(TranslationFieldLimits.LastErrorMaxLength);
+
+        job.HasIndex(x => new { x.TenantId, x.EntityType, x.EntityId, x.FieldName, x.SourceHash, x.TargetLanguage })
+            .IsUnique()
+            .HasDatabaseName("ux_translation_jobs_source_version");
+
+        job.HasIndex(x => new { x.Status, x.CreatedAt })
+            .HasDatabaseName("ix_translation_jobs_status_created_at");
+
+        job.HasIndex(x => new { x.TenantId, x.EntityType, x.EntityId })
+            .HasDatabaseName("ix_translation_jobs_tenant_entity");
+
+        job.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+
+        var translation = modelBuilder.Entity<TranslatedText>();
+
+        translation.ToTable(
+            "translated_texts",
+            table => table.HasCheckConstraint(
+                "ck_translated_texts_target_language",
+                "target_language IN ('he', 'en', 'th')"));
+
+        translation.HasKey(x => x.Id);
+
+        translation.Property(x => x.Id)
+            .HasColumnName("id");
+
+        translation.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        translation.Property(x => x.EntityType)
+            .HasColumnName("entity_type")
+            .HasMaxLength(TranslationFieldLimits.EntityTypeMaxLength)
+            .IsRequired();
+
+        translation.Property(x => x.EntityId)
+            .HasColumnName("entity_id")
+            .IsRequired();
+
+        translation.Property(x => x.FieldName)
+            .HasColumnName("field_name")
+            .HasMaxLength(TranslationFieldLimits.FieldNameMaxLength)
+            .IsRequired();
+
+        translation.Property(x => x.SourceHash)
+            .HasColumnName("source_hash")
+            .HasMaxLength(TranslationFieldLimits.SourceHashLength)
+            .IsRequired();
+
+        translation.Property(x => x.TargetLanguage)
+            .HasColumnName("target_language")
+            .HasMaxLength(TranslationFieldLimits.TargetLanguageMaxLength)
+            .IsRequired();
+
+        translation.Property(x => x.Text)
+            .HasColumnName("translated_text")
+            .IsRequired();
+
+        translation.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        translation.Property(x => x.UpdatedAt)
+            .HasColumnName("updated_at");
+
+        translation.HasIndex(x => new { x.TenantId, x.EntityType, x.EntityId, x.FieldName, x.SourceHash, x.TargetLanguage })
+            .IsUnique()
+            .HasDatabaseName("ux_translated_texts_source_version");
+
+        translation.HasIndex(x => new { x.TenantId, x.EntityType, x.EntityId, x.FieldName, x.TargetLanguage })
+            .HasDatabaseName("ix_translated_texts_tenant_field");
+
+        translation.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 }
 

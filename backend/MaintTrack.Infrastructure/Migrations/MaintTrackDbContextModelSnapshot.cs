@@ -245,6 +245,87 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.ToTable("technicians", (string)null);
                 });
 
+            modelBuilder.Entity("MaintTrack.Domain.Arrays.ArrayFeatureVisibility", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ArrayId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("array_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FeatureKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("feature_key");
+
+                    b.Property<bool>("IsVisible")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_visible");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArrayId");
+
+                    b.HasIndex("TenantId", "ArrayId", "FeatureKey")
+                        .IsUnique();
+
+                    b.ToTable("array_feature_visibility", (string)null);
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Arrays.WorkGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsMorningRoundEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_morning_round_enabled");
+
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name_key");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("arrays", (string)null);
+                });
+
             modelBuilder.Entity("MaintTrack.Domain.Audit.AuditLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -616,141 +697,6 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.ToTable("forklift_treatments", (string)null);
                 });
 
-            modelBuilder.Entity("MaintTrack.Domain.Arrays.ArrayFeatureVisibility", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("ArrayId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("array_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("FeatureKey")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("feature_key");
-
-                    b.Property<bool>("IsVisible")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_visible");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ArrayId");
-
-                    b.HasIndex("TenantId", "ArrayId", "FeatureKey")
-                        .IsUnique();
-
-                    b.ToTable("array_feature_visibility", (string)null);
-                });
-
-            modelBuilder.Entity("MaintTrack.Domain.Arrays.WorkGroup", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true)
-                        .HasColumnName("is_active");
-
-                    b.Property<bool>("IsMorningRoundEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_morning_round_enabled");
-
-                    b.Property<string>("NameKey")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name_key");
-
-                    b.Property<int>("SortOrder")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("sort_order");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("arrays", (string)null);
-                });
-
-            modelBuilder.Entity("MaintTrack.Domain.Machines.Machine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid?>("ArrayId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("array_id");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("code");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text")
-                        .HasColumnName("description");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)")
-                        .HasColumnName("name");
-
-                    b.Property<int>("SortOrder")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("sort_order");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("machines", (string)null);
-                });
-
             modelBuilder.Entity("MaintTrack.Domain.MachineComponents.MachineComponent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -914,6 +860,60 @@ namespace MaintTrack.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("machine_parameter_photo_managers", (string)null);
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Machines.Machine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ArrayId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("array_id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sort_order");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("machines", (string)null);
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntry", b =>
@@ -1205,6 +1205,166 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.ToTable("tenants", (string)null);
                 });
 
+            modelBuilder.Entity("MaintTrack.Domain.Translations.TranslatedText", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("entity_type");
+
+                    b.Property<string>("FieldName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("field_name");
+
+                    b.Property<string>("SourceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_hash");
+
+                    b.Property<string>("TargetLanguage")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("target_language");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("translated_text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "EntityType", "EntityId", "FieldName", "TargetLanguage")
+                        .HasDatabaseName("ix_translated_texts_tenant_field");
+
+                    b.HasIndex("TenantId", "EntityType", "EntityId", "FieldName", "SourceHash", "TargetLanguage")
+                        .IsUnique()
+                        .HasDatabaseName("ux_translated_texts_source_version");
+
+                    b.ToTable("translated_texts", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_translated_texts_target_language", "target_language IN ('he', 'en', 'th')");
+                        });
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Translations.TranslationJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_count");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("entity_type");
+
+                    b.Property<string>("FieldName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("field_name");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<string>("SourceHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_hash");
+
+                    b.Property<string>("SourceText")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("source_text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TargetLanguage")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("target_language");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "CreatedAt")
+                        .HasDatabaseName("ix_translation_jobs_status_created_at");
+
+                    b.HasIndex("TenantId", "EntityType", "EntityId")
+                        .HasDatabaseName("ix_translation_jobs_tenant_entity");
+
+                    b.HasIndex("TenantId", "EntityType", "EntityId", "FieldName", "SourceHash", "TargetLanguage")
+                        .IsUnique()
+                        .HasDatabaseName("ux_translation_jobs_source_version");
+
+                    b.ToTable("translation_jobs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_translation_jobs_attempt_count", "attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_translation_jobs_status", "status IN ('pending', 'processing', 'completed', 'failed')");
+
+                            t.HasCheckConstraint("ck_translation_jobs_target_language", "target_language IN ('he', 'en', 'th')");
+                        });
+                });
+
             modelBuilder.Entity("MaintTrack.Domain.Treatments.Treatment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1389,17 +1549,6 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.ToTable("users", (string)null);
                 });
 
-            modelBuilder.Entity("MaintTrack.Domain.Arrays.ArrayFeatureVisibility", b =>
-                {
-                    b.HasOne("MaintTrack.Domain.Arrays.WorkGroup", "Array")
-                        .WithMany()
-                        .HasForeignKey("ArrayId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Array");
-                });
-
             modelBuilder.Entity("MaintTrack.Domain.AnnualPlans.AnnualPlanItem", b =>
                 {
                     b.HasOne("MaintTrack.Domain.AnnualPlans.AnnualPlan", "Plan")
@@ -1458,6 +1607,17 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.Navigation("Execution");
 
                     b.Navigation("Technician");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Arrays.ArrayFeatureVisibility", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Arrays.WorkGroup", "Array")
+                        .WithMany()
+                        .HasForeignKey("ArrayId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Array");
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.Clearance.ClearanceApprover", b =>
@@ -1547,27 +1707,6 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.Navigation("Report");
                 });
 
-            modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntry", b =>
-                {
-                    b.HasOne("MaintTrack.Domain.Maintenance.MaintenanceType", "MaintenanceType")
-                        .WithMany()
-                        .HasForeignKey("MaintenanceTypeId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("MaintenanceType");
-                });
-
-            modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntryImage", b =>
-                {
-                    b.HasOne("MaintTrack.Domain.Maintenance.MaintenanceEntry", "MaintenanceEntry")
-                        .WithMany("AdditionalImages")
-                        .HasForeignKey("MaintenanceEntryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("MaintenanceEntry");
-                });
-
             modelBuilder.Entity("MaintTrack.Domain.MachineComponents.MachineComponentMapping", b =>
                 {
                     b.HasOne("MaintTrack.Domain.MachineComponents.MachineComponent", "Component")
@@ -1609,6 +1748,27 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntry", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Maintenance.MaintenanceType", "MaintenanceType")
+                        .WithMany()
+                        .HasForeignKey("MaintenanceTypeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("MaintenanceType");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntryImage", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Maintenance.MaintenanceEntry", "MaintenanceEntry")
+                        .WithMany("AdditionalImages")
+                        .HasForeignKey("MaintenanceEntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MaintenanceEntry");
+                });
+
             modelBuilder.Entity("MaintTrack.Domain.Treatments.Treatment", b =>
                 {
                     b.HasOne("MaintTrack.Domain.Users.User", "CreatedByUser")
@@ -1616,14 +1776,14 @@ namespace MaintTrack.Infrastructure.Migrations
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.SetNull);
 
-                    b.HasOne("MaintTrack.Domain.Machines.Machine", "Machine")
-                        .WithMany()
-                        .HasForeignKey("MachineId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("MaintTrack.Domain.MachineComponents.MachineComponent", "MachineComponent")
                         .WithMany()
                         .HasForeignKey("MachineComponentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("MaintTrack.Domain.Machines.Machine", "Machine")
+                        .WithMany()
+                        .HasForeignKey("MachineId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("MaintTrack.Domain.Maintenance.MaintenanceType", "MaintenanceType")
