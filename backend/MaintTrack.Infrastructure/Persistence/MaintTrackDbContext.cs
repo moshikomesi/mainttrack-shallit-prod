@@ -1530,6 +1530,9 @@ public class MaintTrackDbContext : DbContext
             .HasColumnName("attempt_count")
             .IsRequired();
 
+        job.Property(x => x.ClaimToken)
+            .HasColumnName("claim_token");
+
         job.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();

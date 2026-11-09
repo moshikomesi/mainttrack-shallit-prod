@@ -21,4 +21,12 @@ public sealed class TranslationWorkerOptions
 
     public TimeSpan ProcessingLease =>
         TimeSpan.FromSeconds(Math.Max(1, ProcessingLeaseSeconds));
+
+    /// <summary>
+    /// How often a worker extends leases for jobs it still owns.
+    /// This stays shorter than <see cref="ProcessingLease"/> so later jobs in a batch
+    /// are not reclaimed while an earlier job is still running.
+    /// </summary>
+    public TimeSpan ClaimRenewalInterval =>
+        TimeSpan.FromMilliseconds(Math.Max(200, ProcessingLease.TotalMilliseconds / 3));
 }

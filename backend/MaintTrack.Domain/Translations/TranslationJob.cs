@@ -23,6 +23,12 @@ public sealed class TranslationJob : TenantEntity
 
     public int AttemptCount { get; set; }
 
+    /// <summary>
+    /// Identifies the claim that currently owns a processing job.
+    /// Completion and failure must present this token. A new claim replaces it.
+    /// </summary>
+    public Guid? ClaimToken { get; set; }
+
     public DateTime? ProcessedAt { get; set; }
 
     public string? LastError { get; set; }

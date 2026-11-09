@@ -87,6 +87,8 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
         Assert.NotNull(job.GetIndexes().Single(index => index.GetDatabaseName() == "ix_translation_jobs_status_created_at"));
         Assert.NotNull(job.GetIndexes().Single(index => index.GetDatabaseName() == "ix_translation_jobs_tenant_entity"));
         Assert.Equal("source_hash", job.FindProperty(nameof(TranslationJob.SourceHash))!.GetColumnName(jobStore));
+        Assert.Equal("claim_token", job.FindProperty(nameof(TranslationJob.ClaimToken))!.GetColumnName(jobStore));
+        Assert.True(job.FindProperty(nameof(TranslationJob.ClaimToken))!.IsNullable);
         Assert.Equal("translated_text", translation.FindProperty(nameof(TranslatedText.Text))!.GetColumnName(translationStore));
 
         var languageCheck = job.GetCheckConstraints().Single(check => check.Name == "ck_translation_jobs_target_language");
@@ -175,6 +177,9 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
         var other = Assert.Single(secondClaim);
         Assert.Empty(thirdClaim);
         Assert.NotEqual(claimed.Id, other.Id);
+        Assert.NotNull(claimed.ClaimToken);
+        Assert.NotNull(other.ClaimToken);
+        Assert.NotEqual(claimed.ClaimToken, other.ClaimToken);
         Assert.Equal(TranslationJobStatus.Processing, claimed.Status);
         Assert.Equal(1, claimed.AttemptCount);
         Assert.All(await _db.TranslationJobs.AsNoTracking().ToListAsync(), job =>
@@ -188,20 +193,22 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
     public async Task Fail_RetriesTheSameJob_ThenMarksItFailed()
     {
         var enqueued = await EnqueueAsync("Seal leaking", TranslationLanguages.Hebrew);
-        await _repository.ClaimPendingAsync(1, TimeSpan.FromMinutes(5), CancellationToken.None);
+        var first = Assert.Single(await _repository.ClaimPendingAsync(1, TimeSpan.FromMinutes(5), CancellationToken.None));
 
-        await _repository.FailAsync(enqueued.Job.Id, "temporary outage", 2, CancellationToken.None);
+        Assert.True(await _repository.FailAsync(first.Id, first.ClaimToken!.Value, "temporary outage", 2, CancellationToken.None));
         var retried = await _db.TranslationJobs.SingleAsync();
         Assert.Equal(TranslationJobStatus.Pending, retried.Status);
         Assert.Equal(1, retried.AttemptCount);
         Assert.Equal("temporary outage", retried.LastError);
         Assert.Null(retried.ProcessedAt);
+        Assert.Null(retried.ClaimToken);
 
         var again = Assert.Single(await _repository.ClaimPendingAsync(1, TimeSpan.FromMinutes(5), CancellationToken.None));
         Assert.Equal(enqueued.Job.Id, again.Id);
         Assert.Equal(2, again.AttemptCount);
+        Assert.NotEqual(first.ClaimToken, again.ClaimToken);
 
-        await _repository.FailAsync(enqueued.Job.Id, "still down", 2, CancellationToken.None);
+        Assert.True(await _repository.FailAsync(again.Id, again.ClaimToken!.Value, "still down", 2, CancellationToken.None));
         var failed = await _db.TranslationJobs.SingleAsync();
         Assert.Equal(TranslationJobStatus.Failed, failed.Status);
         Assert.Equal(2, failed.AttemptCount);
@@ -214,7 +221,7 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
     public async Task ExpiredProcessingLease_CanBeClaimedAgain()
     {
         var enqueued = await EnqueueAsync("Seal leaking", TranslationLanguages.Hebrew);
-        await _repository.ClaimPendingAsync(1, TimeSpan.FromMinutes(5), CancellationToken.None);
+        var first = Assert.Single(await _repository.ClaimPendingAsync(1, TimeSpan.FromMinutes(5), CancellationToken.None));
 
         var job = await _db.TranslationJobs.SingleAsync();
         job.UpdatedAt = DateTime.UtcNow.AddHours(-1);
@@ -227,6 +234,118 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
         Assert.Equal(enqueued.Job.Id, reclaimed.Id);
         Assert.Equal(2, reclaimed.AttemptCount);
         Assert.Equal(TranslationJobStatus.Processing, reclaimed.Status);
+        Assert.NotEqual(first.ClaimToken, reclaimed.ClaimToken);
+        Assert.Equal(1, await _db.TranslationJobs.CountAsync());
+    }
+
+    [Fact]
+    public async Task ExpiredClaim_CannotCompleteOrFailAfterANewerClaim()
+    {
+        var enqueued = await EnqueueAsync("Seal leaking", TranslationLanguages.Hebrew);
+        var first = Assert.Single(await _repository.ClaimPendingAsync(1, TimeSpan.FromSeconds(1), CancellationToken.None));
+        var firstToken = first.ClaimToken!.Value;
+
+        var stored = await _db.TranslationJobs.SingleAsync();
+        stored.UpdatedAt = DateTime.UtcNow.AddHours(-1);
+        await _db.SaveChangesAsync();
+        _db.ChangeTracker.Clear();
+
+        var second = Assert.Single(await _repository.ClaimPendingAsync(1, TimeSpan.FromSeconds(1), CancellationToken.None));
+        var secondToken = second.ClaimToken!.Value;
+        Assert.NotEqual(firstToken, secondToken);
+
+        Assert.Equal(
+            TranslationCompletionResult.Stale,
+            await _repository.CompleteAsync(first.Id, firstToken, enqueued.Job.SourceHash, "stale text", CancellationToken.None));
+        Assert.False(await _repository.FailAsync(first.Id, firstToken, "stale failure", 5, CancellationToken.None));
+
+        var stillOwned = await _db.TranslationJobs.AsNoTracking().SingleAsync();
+        Assert.Equal(TranslationJobStatus.Processing, stillOwned.Status);
+        Assert.Equal(secondToken, stillOwned.ClaimToken);
+        Assert.Equal(2, stillOwned.AttemptCount);
+        Assert.Null(stillOwned.LastError);
+        Assert.Empty(await _db.TranslatedTexts.AsNoTracking().ToListAsync());
+
+        Assert.Equal(
+            TranslationCompletionResult.Completed,
+            await _repository.CompleteAsync(second.Id, secondToken, second.SourceHash, "current text", CancellationToken.None));
+        Assert.Equal(
+            TranslationCompletionResult.Stale,
+            await _repository.CompleteAsync(first.Id, firstToken, enqueued.Job.SourceHash, "late overwrite", CancellationToken.None));
+        Assert.False(await _repository.FailAsync(first.Id, firstToken, "late failure", 5, CancellationToken.None));
+
+        var completed = await _db.TranslationJobs.AsNoTracking().SingleAsync();
+        Assert.Equal(TranslationJobStatus.Completed, completed.Status);
+        Assert.Equal(secondToken, completed.ClaimToken);
+        Assert.Equal("current text", (await _db.TranslatedTexts.AsNoTracking().SingleAsync()).Text);
+    }
+
+    [Fact]
+    public async Task Renew_ExtendsOnlyTheCurrentClaim()
+    {
+        await EnqueueAsync("Seal leaking", TranslationLanguages.Hebrew);
+        var first = Assert.Single(await _repository.ClaimPendingAsync(1, TimeSpan.FromSeconds(1), CancellationToken.None));
+        var stored = await _db.TranslationJobs.SingleAsync();
+        stored.UpdatedAt = DateTime.UtcNow.AddHours(-1);
+        await _db.SaveChangesAsync();
+        _db.ChangeTracker.Clear();
+
+        var second = Assert.Single(await _repository.ClaimPendingAsync(1, TimeSpan.FromSeconds(1), CancellationToken.None));
+        var ownedAt = second.UpdatedAt;
+        await _repository.RenewClaimsAsync(
+            new[] { new TranslationClaim(first.Id, first.ClaimToken!.Value) },
+            CancellationToken.None);
+
+        var afterStaleRenew = await _db.TranslationJobs.AsNoTracking().SingleAsync();
+        Assert.Equal(second.ClaimToken, afterStaleRenew.ClaimToken);
+        Assert.Equal(ownedAt, afterStaleRenew.UpdatedAt);
+
+        await Task.Delay(50);
+        await _repository.RenewClaimsAsync(
+            new[] { new TranslationClaim(second.Id, second.ClaimToken!.Value) },
+            CancellationToken.None);
+        var renewed = await _db.TranslationJobs.AsNoTracking().SingleAsync();
+        Assert.Equal(second.ClaimToken, renewed.ClaimToken);
+        Assert.True(renewed.UpdatedAt > ownedAt);
+    }
+
+    [Fact]
+    public async Task Enqueue_AcceptsFaultDescription_AndRejectsOtherFields()
+    {
+        Assert.True(TranslatableFields.IsAllowed(TranslatableFields.MaintenanceEntry, TranslatableFields.Description));
+        Assert.False(TranslatableFields.IsAllowed(TranslatableFields.MaintenanceEntry, "RepairDescription"));
+        Assert.False(TranslatableFields.IsAllowed("MachineComponent", "NameKey"));
+
+        var allowed = await EnqueueAsync("Seal leaking", TranslationLanguages.Hebrew);
+        Assert.True(allowed.Created);
+        Assert.Equal(TranslatableFields.MaintenanceEntry, allowed.Job.EntityType);
+        Assert.Equal(TranslatableFields.Description, allowed.Job.FieldName);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _repository.EnqueueAsync(
+            new EnqueueTranslationRequest(
+                TranslatableFields.MaintenanceEntry,
+                _entityId,
+                "RepairDescription",
+                "gasket replaced",
+                TranslationLanguages.English),
+            CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _repository.EnqueueAsync(
+            new EnqueueTranslationRequest(
+                "MachineComponent",
+                _entityId,
+                "NameKey",
+                "component.bearing",
+                TranslationLanguages.Thai),
+            CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _repository.EnqueueAsync(
+            new EnqueueTranslationRequest(
+                TranslatableFields.MaintenanceEntry,
+                _entityId,
+                "description",
+                "Seal leaking",
+                TranslationLanguages.Hebrew),
+            CancellationToken.None));
+
         Assert.Equal(1, await _db.TranslationJobs.CountAsync());
     }
 
@@ -234,10 +353,15 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
     public async Task SourceChange_KeepsThePreviousTranslationAddressable()
     {
         var original = await EnqueueAsync("Seal leaking", TranslationLanguages.Hebrew);
-        await _repository.ClaimPendingAsync(10, TimeSpan.FromMinutes(5), CancellationToken.None);
+        var claimed = Assert.Single(await _repository.ClaimPendingAsync(10, TimeSpan.FromMinutes(5), CancellationToken.None));
         Assert.Equal(
             TranslationCompletionResult.Completed,
-            await _repository.CompleteAsync(original.Job.Id, original.Job.SourceHash, "דליפת אטם", CancellationToken.None));
+            await _repository.CompleteAsync(
+                claimed.Id,
+                claimed.ClaimToken!.Value,
+                original.Job.SourceHash,
+                "דליפת אטם",
+                CancellationToken.None));
 
         var revised = await EnqueueAsync("Seal replaced", TranslationLanguages.Hebrew);
         var originalTranslation = await _repository.FindTranslationAsync(
@@ -266,14 +390,26 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
     {
         var older = await EnqueueAsync("Seal leaking", TranslationLanguages.Hebrew);
         var newer = await EnqueueAsync("Seal replaced", TranslationLanguages.English);
-        await _repository.ClaimPendingAsync(10, TimeSpan.FromMinutes(5), CancellationToken.None);
+        var claimed = await _repository.ClaimPendingAsync(10, TimeSpan.FromMinutes(5), CancellationToken.None);
+        var olderClaim = claimed.Single(job => job.Id == older.Job.Id);
+        var newerClaim = claimed.Single(job => job.Id == newer.Job.Id);
         Assert.Equal(
             TranslationCompletionResult.Completed,
-            await _repository.CompleteAsync(newer.Job.Id, newer.Job.SourceHash, "newer text", CancellationToken.None));
+            await _repository.CompleteAsync(
+                newerClaim.Id,
+                newerClaim.ClaimToken!.Value,
+                newer.Job.SourceHash,
+                "newer text",
+                CancellationToken.None));
 
         Assert.Equal(
             TranslationCompletionResult.Completed,
-            await _repository.CompleteAsync(older.Job.Id, older.Job.SourceHash, "older text", CancellationToken.None));
+            await _repository.CompleteAsync(
+                olderClaim.Id,
+                olderClaim.ClaimToken!.Value,
+                older.Job.SourceHash,
+                "older text",
+                CancellationToken.None));
 
         var newerRow = await _db.TranslatedTexts.SingleAsync(item => item.SourceHash == newer.Job.SourceHash);
         var olderRow = await _db.TranslatedTexts.SingleAsync(item => item.SourceHash == older.Job.SourceHash);
@@ -287,7 +423,12 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
         processing.SourceHash = SourceTextHasher.Compute("mutated-after-claim");
         await _db.SaveChangesAsync();
 
-        var stale = await _repository.CompleteAsync(older.Job.Id, capturedHash, "stale overwrite", CancellationToken.None);
+        var stale = await _repository.CompleteAsync(
+            older.Job.Id,
+            olderClaim.ClaimToken!.Value,
+            capturedHash,
+            "stale overwrite",
+            CancellationToken.None);
 
         Assert.Equal(TranslationCompletionResult.Stale, stale);
         Assert.Equal("older text", (await _db.TranslatedTexts.SingleAsync(item => item.SourceHash == capturedHash)).Text);
@@ -303,7 +444,12 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
     {
         var job = await EnqueueAsync("Seal leaking", TranslationLanguages.Hebrew);
 
-        var result = await _repository.CompleteAsync(job.Job.Id, job.Job.SourceHash, "too early", CancellationToken.None);
+        var result = await _repository.CompleteAsync(
+            job.Job.Id,
+            Guid.NewGuid(),
+            job.Job.SourceHash,
+            "too early",
+            CancellationToken.None);
 
         Assert.Equal(TranslationCompletionResult.Stale, result);
         Assert.Empty(await _db.TranslatedTexts.ToListAsync());
@@ -387,8 +533,13 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
         Assert.Equal(description, created!.Description);
 
         var queued = await EnqueueAsync(description, TranslationLanguages.Hebrew, entryId);
-        await _repository.ClaimPendingAsync(10, TimeSpan.FromMinutes(5), CancellationToken.None);
-        await _repository.CompleteAsync(queued.Job.Id, queued.Job.SourceHash, "translated fault", CancellationToken.None);
+        var claimed = Assert.Single(await _repository.ClaimPendingAsync(10, TimeSpan.FromMinutes(5), CancellationToken.None));
+        await _repository.CompleteAsync(
+            claimed.Id,
+            claimed.ClaimToken!.Value,
+            queued.Job.SourceHash,
+            "translated fault",
+            CancellationToken.None);
 
         var reread = await _db.MaintenanceEntries.IgnoreQueryFilters().SingleAsync(entry => entry.Id == entryId);
         Assert.Equal(description, reread.Description);

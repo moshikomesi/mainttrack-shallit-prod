@@ -83,6 +83,7 @@ public sealed class TranslationWorker : BackgroundService
             claimed = jobs
                 .Select(job => new ClaimedJob(
                     job.Id,
+                    job.ClaimToken ?? throw new InvalidOperationException("Claimed translation job has no claim token."),
                     job.TenantId,
                     job.SourceText,
                     job.SourceHash,
@@ -90,21 +91,37 @@ public sealed class TranslationWorker : BackgroundService
                 .ToList();
         }
 
-        foreach (var job in claimed)
+        if (claimed.Count == 0)
+            return 0;
+
+        var claims = claimed
+            .Select(job => new TranslationClaim(job.Id, job.ClaimToken))
+            .ToArray();
+        using var renewalCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var renewal = RenewClaimsWhileProcessingAsync(claims, renewalCancellation.Token);
+        try
         {
-            try
+            foreach (var job in claimed)
             {
-                await TranslateClaimedJobAsync(job, cancellationToken);
+                try
+                {
+                    await TranslateClaimedJobAsync(job, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogError(exception, "Translation job {JobId} failed.", job.Id);
+                    await RecordFailureAsync(job, exception, cancellationToken);
+                }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Translation job {JobId} failed.", job.Id);
-                await RecordFailureAsync(job, exception, cancellationToken);
-            }
+        }
+        finally
+        {
+            renewalCancellation.Cancel();
+            await renewal;
         }
 
         return claimed.Count;
@@ -132,6 +149,7 @@ public sealed class TranslationWorker : BackgroundService
 
         var result = await repository.CompleteAsync(
             job.Id,
+            job.ClaimToken,
             job.SourceHash,
             translated,
             cancellationToken);
@@ -156,11 +174,18 @@ public sealed class TranslationWorker : BackgroundService
             var tenantContext = scope.ServiceProvider.GetRequiredService<ITenantContext>();
             tenantContext.TenantId = job.TenantId;
             var repository = scope.ServiceProvider.GetRequiredService<ITranslationRepository>();
-            await repository.FailAsync(
+            var recorded = await repository.FailAsync(
                 job.Id,
+                job.ClaimToken,
                 exception.Message,
                 _options.NormalizedMaxAttempts,
                 cancellationToken);
+            if (!recorded)
+            {
+                _logger.LogInformation(
+                    "Translation job {JobId} failure was not recorded because the claim is no longer current.",
+                    job.Id);
+            }
         }
         catch (Exception recordException)
         {
@@ -171,8 +196,33 @@ public sealed class TranslationWorker : BackgroundService
         }
     }
 
+    private async Task RenewClaimsWhileProcessingAsync(
+        IReadOnlyList<TranslationClaim> claims,
+        CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(_options.ClaimRenewalInterval, cancellationToken);
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                var repository = scope.ServiceProvider.GetRequiredService<ITranslationRepository>();
+                await repository.RenewClaimsAsync(claims, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Translation claim renewal failed.");
+            }
+        }
+    }
+
     private sealed record ClaimedJob(
         Guid Id,
+        Guid ClaimToken,
         Guid TenantId,
         string SourceText,
         string SourceHash,

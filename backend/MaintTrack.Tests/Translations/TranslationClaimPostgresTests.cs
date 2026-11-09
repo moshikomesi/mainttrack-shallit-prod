@@ -1,3 +1,4 @@
+using MaintTrack.Application.Abstractions;
 using MaintTrack.Application.Translations;
 using MaintTrack.Domain.Translations;
 using MaintTrack.Infrastructure.Persistence;
@@ -5,6 +6,8 @@ using MaintTrack.Infrastructure.Tenancy;
 using MaintTrack.Infrastructure.Translations;
 using MaintTrack.Tests.Clearance;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
 namespace MaintTrack.Tests.Translations;
@@ -70,7 +73,148 @@ public sealed class TranslationClaimPostgresTests : IAsyncLifetime
         {
             Assert.Equal(TranslationJobStatus.Processing, job.Status);
             Assert.Equal(1, job.AttemptCount);
+            Assert.NotNull(job.ClaimToken);
         });
+        Assert.Equal(40, claimed.SelectMany(batch => batch).Select(job => job.ClaimToken).Distinct().Count());
+    }
+
+    [PostgresFact]
+    public async Task ExpiredClaim_RejectsThePreviousOwnerOnPostgres()
+    {
+        await ResetAsync();
+        var tenantId = Guid.NewGuid();
+        var entityId = Guid.NewGuid();
+        EnqueueTranslationResult enqueued;
+        await using (var opened = Open(tenantId))
+        {
+            enqueued = await opened.Repository.EnqueueAsync(
+                new EnqueueTranslationRequest(
+                    TranslatableFields.MaintenanceEntry,
+                    entityId,
+                    TranslatableFields.Description,
+                    "Seal leaking",
+                    TranslationLanguages.Hebrew),
+                CancellationToken.None);
+        }
+
+        await using var firstOwner = Open(null);
+        var first = Assert.Single(await firstOwner.Repository.ClaimPendingAsync(1, TimeSpan.FromSeconds(1), CancellationToken.None));
+        var firstToken = first.ClaimToken!.Value;
+
+        await using (var editor = Open(null))
+        {
+            await editor.Db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE translation_jobs SET updated_at = {DateTime.UtcNow.AddHours(-1)} WHERE id = {first.Id}");
+        }
+
+        await using var secondOwner = Open(null);
+        var second = Assert.Single(await secondOwner.Repository.ClaimPendingAsync(1, TimeSpan.FromSeconds(1), CancellationToken.None));
+        var secondToken = second.ClaimToken!.Value;
+        Assert.NotEqual(firstToken, secondToken);
+
+        await using var staleOwner = Open(tenantId);
+        Assert.Equal(
+            TranslationCompletionResult.Stale,
+            await staleOwner.Repository.CompleteAsync(
+                first.Id,
+                firstToken,
+                enqueued.Job.SourceHash,
+                "stale text",
+                CancellationToken.None));
+        Assert.False(await staleOwner.Repository.FailAsync(first.Id, firstToken, "stale failure", 5, CancellationToken.None));
+
+        var owned = await secondOwner.Db.TranslationJobs.AsNoTracking().SingleAsync();
+        Assert.Equal(TranslationJobStatus.Processing, owned.Status);
+        Assert.Equal(secondToken, owned.ClaimToken);
+        Assert.Null(owned.LastError);
+        Assert.Empty(await secondOwner.Db.TranslatedTexts.AsNoTracking().ToListAsync());
+
+        Assert.Equal(
+            TranslationCompletionResult.Completed,
+            await secondOwner.Repository.CompleteAsync(
+                second.Id,
+                secondToken,
+                second.SourceHash,
+                "current text",
+                CancellationToken.None));
+        Assert.Equal(
+            TranslationCompletionResult.Stale,
+            await staleOwner.Repository.CompleteAsync(
+                first.Id,
+                firstToken,
+                enqueued.Job.SourceHash,
+                "late overwrite",
+                CancellationToken.None));
+        Assert.False(await staleOwner.Repository.FailAsync(first.Id, firstToken, "late failure", 5, CancellationToken.None));
+
+        Assert.Equal("current text", (await secondOwner.Db.TranslatedTexts.AsNoTracking().SingleAsync()).Text);
+        Assert.Equal(TranslationJobStatus.Completed, (await secondOwner.Db.TranslationJobs.AsNoTracking().SingleAsync()).Status);
+    }
+
+    [PostgresFact]
+    public async Task SlowBatch_DoesNotLetWaitingJobsExpire()
+    {
+        await ResetAsync();
+        var tenantId = Guid.NewGuid();
+        await using (var opened = Open(tenantId))
+        {
+            foreach (var source in new[] { "slow fault", "second fault", "third fault" })
+            {
+                var enqueued = await opened.Repository.EnqueueAsync(
+                    new EnqueueTranslationRequest(
+                        TranslatableFields.MaintenanceEntry,
+                        Guid.NewGuid(),
+                        TranslatableFields.Description,
+                        source,
+                        TranslationLanguages.Hebrew),
+                    CancellationToken.None);
+                Assert.True(enqueued.Created);
+            }
+        }
+
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var services = new ServiceCollection();
+        services.AddDbContext<MaintTrackDbContext>(options => options.UseNpgsql(_connectionString));
+        services.AddScoped<ITenantContext, TenantContext>();
+        services.AddScoped<ITranslationRepository, TranslationRepository>();
+        services.AddSingleton<ITranslationProvider>(new HoldingProvider(started, release));
+        await using var provider = services.BuildServiceProvider();
+        var worker = new TranslationWorker(
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            new TranslationWorkerOptions
+            {
+                PollingIntervalSeconds = 30,
+                BatchSize = 10,
+                MaxAttempts = 3,
+                ProcessingLeaseSeconds = 1
+            },
+            NullLogger<TranslationWorker>.Instance);
+
+        var processing = worker.ProcessOnceAsync(CancellationToken.None);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(TimeSpan.FromMilliseconds(1500));
+            Assert.Empty(await ClaimAsync(10, TimeSpan.FromSeconds(1)));
+            release.TrySetResult();
+            Assert.Equal(3, await processing.WaitAsync(TimeSpan.FromSeconds(10)));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await processing.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        await using var check = Open(tenantId);
+        var jobs = await check.Db.TranslationJobs.AsNoTracking().ToListAsync();
+        Assert.Equal(3, jobs.Count);
+        Assert.All(jobs, job =>
+        {
+            Assert.Equal(TranslationJobStatus.Completed, job.Status);
+            Assert.Equal(1, job.AttemptCount);
+        });
+        Assert.Equal(3, await check.Db.TranslatedTexts.CountAsync());
     }
 
     [PostgresFact]
@@ -144,10 +288,13 @@ public sealed class TranslationClaimPostgresTests : IAsyncLifetime
         }
     }
 
-    private async Task<IReadOnlyList<TranslationJob>> ClaimAsync(int batchSize)
+    private Task<IReadOnlyList<TranslationJob>> ClaimAsync(int batchSize) =>
+        ClaimAsync(batchSize, TimeSpan.FromMinutes(5));
+
+    private async Task<IReadOnlyList<TranslationJob>> ClaimAsync(int batchSize, TimeSpan lease)
     {
         await using var opened = Open(null);
-        return await opened.Repository.ClaimPendingAsync(batchSize, TimeSpan.FromMinutes(5), CancellationToken.None);
+        return await opened.Repository.ClaimPendingAsync(batchSize, lease, CancellationToken.None);
     }
 
     private async Task<EnqueueTranslationResult> EnqueueAsync(Guid tenantId, EnqueueTranslationRequest request)
@@ -178,5 +325,33 @@ public sealed class TranslationClaimPostgresTests : IAsyncLifetime
         public TranslationRepository Repository { get; }
 
         public ValueTask DisposeAsync() => Db.DisposeAsync();
+    }
+
+    private sealed class HoldingProvider : ITranslationProvider
+    {
+        private readonly TaskCompletionSource _started;
+        private readonly TaskCompletionSource _release;
+        private int _calls;
+
+        public HoldingProvider(TaskCompletionSource started, TaskCompletionSource release)
+        {
+            _started = started;
+            _release = release;
+        }
+
+        public async Task<string> TranslateAsync(
+            string text,
+            string? sourceLanguage,
+            string targetLanguage,
+            CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                _started.TrySetResult();
+                await _release.Task.WaitAsync(cancellationToken);
+            }
+
+            return $"{targetLanguage}:{text}";
+        }
     }
 }

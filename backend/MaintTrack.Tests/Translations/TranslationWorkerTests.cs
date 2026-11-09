@@ -39,6 +39,9 @@ public sealed class TranslationWorkerTests : IAsyncDisposable
         Assert.Equal(TimeSpan.FromSeconds(30), new TranslationWorkerOptions().PollingInterval);
         Assert.Equal(1, new TranslationWorkerOptions { BatchSize = 0 }.NormalizedBatchSize);
         Assert.Equal(1, new TranslationWorkerOptions { MaxAttempts = 0 }.NormalizedMaxAttempts);
+        var shortLease = new TranslationWorkerOptions { ProcessingLeaseSeconds = 1 };
+        Assert.True(shortLease.ClaimRenewalInterval < shortLease.ProcessingLease);
+        Assert.True(shortLease.ClaimRenewalInterval >= TimeSpan.FromMilliseconds(200));
     }
 
     [Fact]
@@ -165,6 +168,7 @@ public sealed class TranslationWorkerTests : IAsyncDisposable
 
         public Task<TranslationCompletionResult> CompleteAsync(
             Guid jobId,
+            Guid claimToken,
             string sourceHash,
             string translatedText,
             CancellationToken cancellationToken) =>
@@ -175,10 +179,16 @@ public sealed class TranslationWorkerTests : IAsyncDisposable
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task FailAsync(
+        public Task<bool> FailAsync(
             Guid jobId,
+            Guid claimToken,
             string error,
             int maxAttempts,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task RenewClaimsAsync(
+            IReadOnlyCollection<TranslationClaim> claims,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 

@@ -34,6 +34,9 @@ public sealed class TranslationRepository : ITranslationRepository
 
         var entityType = NormalizeRequired(request.EntityType, TranslationFieldLimits.EntityTypeMaxLength, "Entity type");
         var fieldName = NormalizeRequired(request.FieldName, TranslationFieldLimits.FieldNameMaxLength, "Field name");
+        if (!TranslatableFields.IsAllowed(entityType, fieldName))
+            throw new InvalidOperationException($"{entityType}.{fieldName} cannot be translated.");
+
         var targetLanguage = NormalizeLanguage(request.TargetLanguage);
 
         if (request.EntityId == Guid.Empty)
@@ -132,8 +135,31 @@ public sealed class TranslationRepository : ITranslationRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task RenewClaimsAsync(
+        IReadOnlyCollection<TranslationClaim> claims,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(claims);
+        if (claims.Count == 0)
+            return;
+
+        var now = DateTime.UtcNow;
+        var processing = TranslationJobStatus.Processing;
+        foreach (var claim in claims)
+        {
+            await _db.TranslationJobs
+                .Where(job => job.Id == claim.JobId
+                    && job.ClaimToken == claim.ClaimToken
+                    && job.Status == processing)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(job => job.UpdatedAt, now),
+                    cancellationToken);
+        }
+    }
+
     public async Task<TranslationCompletionResult> CompleteAsync(
         Guid jobId,
+        Guid claimToken,
         string sourceHash,
         string translatedText,
         CancellationToken cancellationToken)
@@ -142,30 +168,38 @@ public sealed class TranslationRepository : ITranslationRepository
         ArgumentNullException.ThrowIfNull(translatedText);
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
-        var job = await _db.TranslationJobs.FirstOrDefaultAsync(item => item.Id == jobId, cancellationToken);
+        var job = await _db.TranslationJobs
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.Id == jobId, cancellationToken);
         if (job is null)
         {
             await transaction.CommitAsync(cancellationToken);
             return TranslationCompletionResult.NotFound;
         }
 
-        if (job.Status != TranslationJobStatus.Processing)
+        if (job.Status != TranslationJobStatus.Processing || job.ClaimToken != claimToken)
         {
             await transaction.CommitAsync(cancellationToken);
             return TranslationCompletionResult.Stale;
         }
+
+        DetachJobs();
 
         if (!string.Equals(job.SourceHash, sourceHash, StringComparison.Ordinal))
         {
-            var nowMismatch = DateTime.UtcNow;
-            job.Status = TranslationJobStatus.Pending;
-            job.LastError = "Source version changed before the translation was stored.";
-            job.UpdatedAt = nowMismatch;
-            await _db.SaveChangesAsync(cancellationToken);
+            var reset = await ResetOwnedClaimAsync(jobId, claimToken, cancellationToken);
+            if (reset != 1)
+            {
+                _db.ChangeTracker.Clear();
+                await transaction.RollbackAsync(cancellationToken);
+                return TranslationCompletionResult.Stale;
+            }
+
             await transaction.CommitAsync(cancellationToken);
             return TranslationCompletionResult.Stale;
         }
 
+        DetachJobs();
         var now = DateTime.UtcNow;
         var existing = await _db.TranslatedTexts.FirstOrDefaultAsync(
             item => item.TenantId == job.TenantId
@@ -191,28 +225,40 @@ public sealed class TranslationRepository : ITranslationRepository
                 CreatedAt = now
             });
         }
-        else if (!string.Equals(existing.SourceHash, job.SourceHash, StringComparison.Ordinal))
-        {
-            await transaction.CommitAsync(cancellationToken);
-            return TranslationCompletionResult.Stale;
-        }
         else
         {
             existing.Text = translatedText;
             existing.UpdatedAt = now;
         }
 
-        job.Status = TranslationJobStatus.Completed;
-        job.ProcessedAt = now;
-        job.UpdatedAt = now;
-        job.LastError = null;
+        var completed = await _db.TranslationJobs
+            .Where(item => item.Id == jobId
+                && item.ClaimToken == claimToken
+                && item.Status == TranslationJobStatus.Processing
+                && item.SourceHash == sourceHash)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(item => item.Status, TranslationJobStatus.Completed)
+                    .SetProperty(item => item.ProcessedAt, now)
+                    .SetProperty(item => item.UpdatedAt, now)
+                    .SetProperty(item => item.LastError, (string?)null),
+                cancellationToken);
+
+        if (completed != 1)
+        {
+            _db.ChangeTracker.Clear();
+            await transaction.RollbackAsync(cancellationToken);
+            return TranslationCompletionResult.Stale;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return TranslationCompletionResult.Completed;
     }
 
-    public async Task FailAsync(
+    public async Task<bool> FailAsync(
         Guid jobId,
+        Guid claimToken,
         string error,
         int maxAttempts,
         CancellationToken cancellationToken)
@@ -220,29 +266,53 @@ public sealed class TranslationRepository : ITranslationRepository
         if (maxAttempts < 1)
             throw new ArgumentOutOfRangeException(nameof(maxAttempts));
 
-        var job = await _db.TranslationJobs.FirstOrDefaultAsync(item => item.Id == jobId, cancellationToken);
-        if (job is null)
+        var now = DateTime.UtcNow;
+        var errorText = NormalizeError(error);
+        var processing = TranslationJobStatus.Processing;
+        var failedRows = await _db.TranslationJobs
+            .Where(job => job.Id == jobId
+                && job.ClaimToken == claimToken
+                && job.Status == processing
+                && job.AttemptCount >= maxAttempts)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(job => job.Status, TranslationJobStatus.Failed)
+                    .SetProperty(job => job.LastError, errorText)
+                    .SetProperty(job => job.UpdatedAt, now)
+                    .SetProperty(job => job.ProcessedAt, now),
+                cancellationToken);
+
+        if (failedRows == 1)
+        {
+            DetachJobs();
+            return true;
+        }
+
+        var retryRows = await _db.TranslationJobs
+            .Where(job => job.Id == jobId
+                && job.ClaimToken == claimToken
+                && job.Status == processing
+                && job.AttemptCount < maxAttempts)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(job => job.Status, TranslationJobStatus.Pending)
+                    .SetProperty(job => job.LastError, errorText)
+                    .SetProperty(job => job.UpdatedAt, now)
+                    .SetProperty(job => job.ProcessedAt, (DateTime?)null)
+                    .SetProperty(job => job.ClaimToken, (Guid?)null),
+                cancellationToken);
+
+        if (retryRows == 1)
+        {
+            DetachJobs();
+            return true;
+        }
+
+        if (!await _db.TranslationJobs.AnyAsync(job => job.Id == jobId, cancellationToken))
             throw new InvalidOperationException("Translation job not found.");
 
-        if (job.Status != TranslationJobStatus.Processing)
-            throw new InvalidOperationException("Only a processing translation job can fail.");
-
-        var now = DateTime.UtcNow;
-        job.LastError = NormalizeError(error);
-        job.UpdatedAt = now;
-
-        if (job.AttemptCount >= maxAttempts)
-        {
-            job.Status = TranslationJobStatus.Failed;
-            job.ProcessedAt = now;
-        }
-        else
-        {
-            job.Status = TranslationJobStatus.Pending;
-            job.ProcessedAt = null;
-        }
-
-        await _db.SaveChangesAsync(cancellationToken);
+        DetachJobs();
+        return false;
     }
 
     public async Task<TranslatedText?> FindTranslationAsync(
@@ -310,6 +380,7 @@ public sealed class TranslationRepository : ITranslationRepository
         var claimed = new List<Guid>(candidateIds.Count);
         foreach (var id in candidateIds)
         {
+            var claimToken = Guid.NewGuid();
             var rows = await _db.TranslationJobs
                 .Where(job => job.Id == id
                     && (job.Status == pending
@@ -318,7 +389,8 @@ public sealed class TranslationRepository : ITranslationRepository
                     setters => setters
                         .SetProperty(job => job.Status, processing)
                         .SetProperty(job => job.AttemptCount, job => job.AttemptCount + 1)
-                        .SetProperty(job => job.UpdatedAt, now),
+                        .SetProperty(job => job.UpdatedAt, now)
+                        .SetProperty(job => job.ClaimToken, claimToken),
                     cancellationToken);
 
             if (rows == 1)
@@ -344,60 +416,88 @@ public sealed class TranslationRepository : ITranslationRepository
         var tenantId = _tenantContext.TenantId;
         var sql = tenantId is null
             ? """
-              WITH claimed AS (
-                  SELECT id
-                  FROM translation_jobs
-                  WHERE status = @pending
-                     OR (status = @processing AND (updated_at IS NULL OR updated_at < @staleBefore))
-                  ORDER BY created_at, id
-                  LIMIT @batch
-                  FOR UPDATE SKIP LOCKED
-              )
-              UPDATE translation_jobs AS job
-              SET status = @processing,
-                  attempt_count = job.attempt_count + 1,
-                  updated_at = @now
-              FROM claimed
-              WHERE job.id = claimed.id
-              RETURNING job.id
+              SELECT id
+              FROM translation_jobs
+              WHERE status = @pending
+                 OR (status = @processing AND (updated_at IS NULL OR updated_at < @staleBefore))
+              ORDER BY created_at, id
+              LIMIT @batch
+              FOR UPDATE SKIP LOCKED
               """
             : """
-              WITH claimed AS (
-                  SELECT id
-                  FROM translation_jobs
-                  WHERE tenant_id = @tenantId
-                    AND (
-                        status = @pending
-                        OR (status = @processing AND (updated_at IS NULL OR updated_at < @staleBefore))
-                    )
-                  ORDER BY created_at, id
-                  LIMIT @batch
-                  FOR UPDATE SKIP LOCKED
-              )
-              UPDATE translation_jobs AS job
-              SET status = @processing,
-                  attempt_count = job.attempt_count + 1,
-                  updated_at = @now
-              FROM claimed
-              WHERE job.id = claimed.id
-              RETURNING job.id
+              SELECT id
+              FROM translation_jobs
+              WHERE tenant_id = @tenantId
+                AND (
+                    status = @pending
+                    OR (status = @processing AND (updated_at IS NULL OR updated_at < @staleBefore))
+                )
+              ORDER BY created_at, id
+              LIMIT @batch
+              FOR UPDATE SKIP LOCKED
               """;
 
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.Add(new NpgsqlParameter("pending", TranslationJobStatus.Pending));
         command.Parameters.Add(new NpgsqlParameter("processing", TranslationJobStatus.Processing));
-        command.Parameters.Add(new NpgsqlParameter("now", NpgsqlDbType.TimestampTz) { Value = now });
         command.Parameters.Add(new NpgsqlParameter("staleBefore", NpgsqlDbType.TimestampTz) { Value = staleBefore });
         command.Parameters.Add(new NpgsqlParameter("batch", batchSize));
         if (tenantId is Guid scopedTenantId)
             command.Parameters.Add(new NpgsqlParameter("tenantId", scopedTenantId));
 
         var ids = new List<Guid>(batchSize);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-            ids.Add(reader.GetGuid(0));
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+                ids.Add(reader.GetGuid(0));
+        }
+
+        const string updateSql = """
+            UPDATE translation_jobs
+            SET status = @processing,
+                attempt_count = attempt_count + 1,
+                updated_at = @now,
+                claim_token = @claimToken
+            WHERE id = @id
+            """;
+
+        foreach (var id in ids)
+        {
+            await using var update = new NpgsqlCommand(updateSql, connection, transaction);
+            update.Parameters.Add(new NpgsqlParameter("processing", TranslationJobStatus.Processing));
+            update.Parameters.Add(new NpgsqlParameter("now", NpgsqlDbType.TimestampTz) { Value = now });
+            update.Parameters.Add(new NpgsqlParameter("claimToken", Guid.NewGuid()));
+            update.Parameters.Add(new NpgsqlParameter("id", id));
+            var updated = await update.ExecuteNonQueryAsync(cancellationToken);
+            if (updated != 1)
+                throw new InvalidOperationException("Claimed translation job could not be fenced.");
+        }
 
         return ids;
+    }
+
+    private void DetachJobs()
+    {
+        foreach (var entry in _db.ChangeTracker.Entries<TranslationJob>().ToList())
+            entry.State = EntityState.Detached;
+    }
+
+    private async Task<int> ResetOwnedClaimAsync(
+        Guid jobId,
+        Guid claimToken,
+        CancellationToken cancellationToken)
+    {
+        return await _db.TranslationJobs
+            .Where(job => job.Id == jobId
+                && job.ClaimToken == claimToken
+                && job.Status == TranslationJobStatus.Processing)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(job => job.Status, TranslationJobStatus.Pending)
+                    .SetProperty(job => job.LastError, "Source version changed before the translation was stored.")
+                    .SetProperty(job => job.UpdatedAt, DateTime.UtcNow)
+                    .SetProperty(job => job.ClaimToken, (Guid?)null),
+                cancellationToken);
     }
 
     private static string NormalizeRequired(string? value, int maxLength, string label)

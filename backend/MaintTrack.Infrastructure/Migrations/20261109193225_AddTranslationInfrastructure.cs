@@ -45,6 +45,7 @@ namespace MaintTrack.Infrastructure.Migrations
                     target_language = table.Column<string>(type: "character varying(8)", maxLength: 8, nullable: false),
                     status = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
                     attempt_count = table.Column<int>(type: "integer", nullable: false),
+                    claim_token = table.Column<Guid>(type: "uuid", nullable: true),
                     processed_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     last_error = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                     tenant_id = table.Column<Guid>(type: "uuid", nullable: false),
