@@ -44,6 +44,8 @@ using MaintTrack.Infrastructure.MaintenanceTasks;
 using MaintTrack.Infrastructure.Reports;
 using MaintTrack.Infrastructure.Treatments;
 using MaintTrack.Infrastructure.AnnualPlans;
+using MaintTrack.Application.Translations;
+using MaintTrack.Infrastructure.Translations;
 using Amazon.S3;
 using Amazon.Extensions.NETCore.Setup;
 using Amazon;
@@ -120,6 +122,10 @@ builder.Services.AddScoped<
     MaintTrack.Infrastructure.Maintenance.MaintenanceEntryService>();
 
 builder.Services.AddScoped<IMaintenanceTypeService, MaintTrack.Infrastructure.Maintenance.MaintenanceTypeService>();
+builder.Services.Configure<TranslationWorkerOptions>(
+    builder.Configuration.GetSection(TranslationWorkerOptions.SectionName));
+builder.Services.AddScoped<ITranslationRepository, TranslationRepository>();
+builder.Services.AddHostedService<TranslationWorker>();
 builder.Services.AddScoped<IMachineComponentService, MachineComponentService>();
 builder.Services.AddScoped<IMachineParameterPhotoService, MachineParameterPhotoService>();
 builder.Services.AddScoped<IClearanceService, ClearanceService>();
