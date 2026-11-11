@@ -231,6 +231,18 @@ internal sealed class MachineParameterPhotoServiceFixture : IAsyncDisposable
         await DbContext.SaveChangesAsync();
     }
 
+    public async Task ExcludeMachineAsync(Guid tenantId, Guid machineId)
+    {
+        DbContext.MachineParameterMachineExclusions.Add(new MachineParameterMachineExclusion
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            MachineId = machineId,
+            CreatedAt = DateTime.UtcNow
+        });
+        await DbContext.SaveChangesAsync();
+    }
+
     public async Task<MachineParameterPhoto> SeedPhotoAsync(
         Guid tenantId,
         Guid machineId,

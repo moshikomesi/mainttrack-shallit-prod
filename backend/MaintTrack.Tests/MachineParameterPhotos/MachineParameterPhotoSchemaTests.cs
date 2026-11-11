@@ -228,6 +228,82 @@ public sealed class MachineParameterPhotoSchemaTests : IAsyncDisposable
         Assert.True(IsArrayVisibleForFeature(rows, array.Id, ArrayFeatureVisibility.MachineParameterPhotosFeatureKey));
     }
 
+    [Fact]
+    public async Task MachineExclusion_IsTenantIsolated()
+    {
+        var tenantMachine = CreateMachine(_tenantId, "machine.mine", "M1");
+        var otherMachine = CreateMachine(_otherTenantId, "machine.other", "O1");
+        _dbContext.Machines.AddRange(tenantMachine, otherMachine);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.MachineParameterMachineExclusions.AddRange(
+            CreateExclusion(_tenantId, tenantMachine.Id),
+            CreateExclusion(_otherTenantId, otherMachine.Id));
+        await _dbContext.SaveChangesAsync();
+
+        var visible = await _dbContext.MachineParameterMachineExclusions.AsNoTracking().ToListAsync();
+
+        Assert.Single(visible);
+        Assert.Equal(_tenantId, visible[0].TenantId);
+        Assert.Equal(tenantMachine.Id, visible[0].MachineId);
+    }
+
+    [Fact]
+    public async Task MachineExclusion_IsUniquePerTenantAndMachine()
+    {
+        var machine = CreateMachine(_tenantId, "machine.unique", "U1");
+        _dbContext.Machines.Add(machine);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.MachineParameterMachineExclusions.Add(CreateExclusion(_tenantId, machine.Id));
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.MachineParameterMachineExclusions.Add(CreateExclusion(_tenantId, machine.Id));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task MachineExclusion_RequiresExistingMachine()
+    {
+        _dbContext.MachineParameterMachineExclusions.Add(CreateExclusion(_tenantId, Guid.NewGuid()));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task MachineExclusion_RestrictsMachineDelete()
+    {
+        var machine = CreateMachine(_tenantId, "machine.protected", "P1");
+        _dbContext.Machines.Add(machine);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.MachineParameterMachineExclusions.Add(CreateExclusion(_tenantId, machine.Id));
+        await _dbContext.SaveChangesAsync();
+        _dbContext.ChangeTracker.Clear();
+
+        var deleteBehavior = _dbContext.Model
+            .FindEntityType(typeof(MachineParameterMachineExclusion))!
+            .GetForeignKeys()
+            .Single(fk => fk.Properties.Any(property => property.Name == nameof(MachineParameterMachineExclusion.MachineId)))
+            .DeleteBehavior;
+        Assert.Equal(DeleteBehavior.Restrict, deleteBehavior);
+
+        var trackedMachine = await _dbContext.Machines.SingleAsync(item => item.Id == machine.Id);
+        _dbContext.Machines.Remove(trackedMachine);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
+    private static MachineParameterMachineExclusion CreateExclusion(Guid tenantId, Guid machineId) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            MachineId = machineId,
+            CreatedAt = DateTime.UtcNow
+        };
+
     private static bool IsArrayVisibleForFeature(
         IReadOnlyList<ArrayFeatureVisibility> rows,
         Guid arrayId,

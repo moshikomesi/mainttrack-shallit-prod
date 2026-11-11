@@ -845,6 +845,35 @@ namespace MaintTrack.Infrastructure.Migrations
                     b.ToTable("machine_component_mappings", (string)null);
                 });
 
+            modelBuilder.Entity("MaintTrack.Domain.MachineParameterPhotos.MachineParameterMachineExclusion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("MachineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("machine_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MachineId");
+
+                    b.HasIndex("TenantId", "MachineId")
+                        .IsUnique();
+
+                    b.ToTable("machine_parameter_machine_visibility", (string)null);
+                });
+
             modelBuilder.Entity("MaintTrack.Domain.MachineParameterPhotos.MachineParameterPhoto", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1583,6 +1612,17 @@ namespace MaintTrack.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Component");
+
+                    b.Navigation("Machine");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.MachineParameterPhotos.MachineParameterMachineExclusion", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.Machines.Machine", "Machine")
+                        .WithMany()
+                        .HasForeignKey("MachineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.Navigation("Machine");
                 });

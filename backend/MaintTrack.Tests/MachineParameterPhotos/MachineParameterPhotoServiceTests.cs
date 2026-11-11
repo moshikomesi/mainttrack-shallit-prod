@@ -1,6 +1,7 @@
 using MaintTrack.Application.Hierarchy;
 using MaintTrack.Application.MachineParameterPhotos;
 using MaintTrack.Domain.Arrays;
+using MaintTrack.Infrastructure.Hierarchy;
 using MaintTrack.Infrastructure.MachineParameterPhotos;
 using Microsoft.EntityFrameworkCore;
 
@@ -389,5 +390,123 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
         await Assert.ThrowsAsync<KeyNotFoundException>(
             () => _fx.Service.DeleteAsync(photo.Id, CancellationToken.None));
         Assert.Single(await _fx.DbContext.MachineParameterPhotos.ToListAsync());
+    }
+
+    [Fact]
+    public async Task GetHierarchy_MachineWithoutExclusionRowIsVisible()
+    {
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
+
+        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
+
+        Assert.Contains(result.Arrays.SelectMany(group => group.Machines), item => item.Id == machine.Id);
+    }
+
+    [Fact]
+    public async Task GetHierarchy_ExcludedMachineIsHidden_ArrayAndSiblingsRemain()
+    {
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
+        var excluded = await _fx.SeedMachineAsync(_fx.TenantId, "machine.excluded", "E1", array.Id);
+        var kept = await _fx.SeedMachineAsync(_fx.TenantId, "machine.kept", "K1", array.Id);
+        await _fx.ExcludeMachineAsync(_fx.TenantId, excluded.Id);
+
+        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
+
+        var group = Assert.Single(result.Arrays);
+        Assert.Equal(array.Id, group.ArrayId);
+        Assert.Equal(new[] { kept.Id }, group.Machines.Select(item => item.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task GetHierarchy_ArrayHideStillAppliesAlongsideMachineExclusions()
+    {
+        var visible = await _fx.SeedArrayAsync(_fx.TenantId, "array.visible");
+        var hidden = await _fx.SeedArrayAsync(_fx.TenantId, "array.hidden");
+        var excluded = await _fx.SeedMachineAsync(_fx.TenantId, "machine.excluded", "E1", visible.Id);
+        var kept = await _fx.SeedMachineAsync(_fx.TenantId, "machine.kept", "K1", visible.Id);
+        await _fx.SeedMachineAsync(_fx.TenantId, "machine.hidden-array", "H1", hidden.Id);
+        await _fx.HideArrayAsync(_fx.TenantId, hidden.Id);
+        await _fx.ExcludeMachineAsync(_fx.TenantId, excluded.Id);
+
+        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
+
+        var group = Assert.Single(result.Arrays);
+        Assert.Equal(visible.Id, group.ArrayId);
+        Assert.Equal(new[] { kept.Id }, group.Machines.Select(item => item.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task GetHierarchy_OtherTenantExclusionDoesNotHideMachine()
+    {
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
+        await _fx.ExcludeMachineAsync(_fx.OtherTenantId, machine.Id);
+
+        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
+        Assert.Contains(result.Arrays.SelectMany(group => group.Machines), item => item.Id == machine.Id);
+
+        var photos = await _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None);
+        Assert.Empty(photos);
+    }
+
+    [Fact]
+    public async Task ExcludedMachine_CannotListUploadOrDelete_AndPhotosAndFilesArePreserved()
+    {
+        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
+        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.excluded", "E1", array.Id);
+        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 1, "/uploads/excluded.jpg");
+        await _fx.ExcludeMachineAsync(_fx.TenantId, machine.Id);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _fx.Service.UploadAsync(
+                machine.Id,
+                new[] { MachineParameterPhotoServiceFixture.CreateUpload() },
+                CancellationToken.None));
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => _fx.Service.DeleteAsync(photo.Id, CancellationToken.None));
+
+        var remaining = await _fx.DbContext.MachineParameterPhotos.AsNoTracking().ToListAsync();
+        Assert.Equal(new[] { photo.Id }, remaining.Select(item => item.Id).ToArray());
+        Assert.Equal("/uploads/excluded.jpg", remaining[0].ImageUrl);
+        Assert.Empty(_fx.Storage.UploadedUrls);
+        Assert.Empty(_fx.Storage.DeletedUrls);
+    }
+
+    [Fact]
+    public async Task RemovingExclusionRow_RestoresAccessToExistingPhotos()
+    {
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.restored", "R1", array.Id);
+        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 1);
+        await _fx.ExcludeMachineAsync(_fx.TenantId, machine.Id);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None));
+
+        _fx.DbContext.MachineParameterMachineExclusions.RemoveRange(
+            await _fx.DbContext.MachineParameterMachineExclusions.ToListAsync());
+        await _fx.DbContext.SaveChangesAsync();
+
+        var photos = await _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None);
+        Assert.Equal(new[] { photo.Id }, photos.Select(item => item.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task SharedHierarchy_StillIncludesExcludedMachine()
+    {
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.excluded", "E1", array.Id);
+        await _fx.ExcludeMachineAsync(_fx.TenantId, machine.Id);
+
+        var shared = await new HierarchyService(_fx.DbContext, _fx.TenantContext)
+            .GetHierarchyAsync(CancellationToken.None);
+
+        Assert.Contains(shared.SelectMany(group => group.Machines), item => item.Id == machine.Id);
+        Assert.True(await _fx.DbContext.Machines.AnyAsync(item => item.Id == machine.Id && item.IsActive));
     }
 }

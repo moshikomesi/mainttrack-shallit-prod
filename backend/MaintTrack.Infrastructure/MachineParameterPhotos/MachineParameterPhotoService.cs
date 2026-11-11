@@ -57,9 +57,16 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
 
         var hierarchy = await _hierarchyService.GetHierarchyAsync(ct);
         var hiddenArrayIds = await GetHiddenArrayIdsAsync(ct);
+        var excludedMachineIds = await GetExcludedMachineIdsAsync(ct);
 
         var arrays = hierarchy
             .Where(group => group.ArrayId is { } arrayId && !hiddenArrayIds.Contains(arrayId))
+            .Select(group => group with
+            {
+                Machines = group.Machines
+                    .Where(machine => !excludedMachineIds.Contains(machine.Id))
+                    .ToList()
+            })
             .ToList();
 
         return new MachineParameterPhotoHierarchyDto(arrays, await IsManagerAsync(ct));
@@ -245,6 +252,14 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
         {
             throw new InvalidOperationException("Machine not found.");
         }
+
+        var isExcluded = await _dbContext.MachineParameterMachineExclusions
+            .AsNoTracking()
+            .AnyAsync(row => row.TenantId == tenantId && row.MachineId == machineId, ct);
+        if (isExcluded)
+        {
+            throw new InvalidOperationException("Machine not found.");
+        }
     }
 
     private async Task<HashSet<Guid>> GetHiddenArrayIdsAsync(CancellationToken ct)
@@ -258,6 +273,19 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
             .ToListAsync(ct);
 
         return hidden.ToHashSet();
+    }
+
+    private async Task<HashSet<Guid>> GetExcludedMachineIdsAsync(CancellationToken ct)
+    {
+        var tenantId = EnsureTenantResolved();
+
+        var excluded = await _dbContext.MachineParameterMachineExclusions
+            .AsNoTracking()
+            .Where(row => row.TenantId == tenantId)
+            .Select(row => row.MachineId)
+            .ToListAsync(ct);
+
+        return excluded.ToHashSet();
     }
 
     private async Task EnsureCanManageAsync(CancellationToken ct)

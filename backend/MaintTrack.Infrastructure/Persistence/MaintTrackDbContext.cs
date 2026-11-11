@@ -51,6 +51,8 @@ public class MaintTrackDbContext : DbContext
 
     public DbSet<MachineParameterPhotoManager> MachineParameterPhotoManagers => Set<MachineParameterPhotoManager>();
 
+    public DbSet<MachineParameterMachineExclusion> MachineParameterMachineExclusions => Set<MachineParameterMachineExclusion>();
+
     public DbSet<MorningRoundReport> MorningRoundReports => Set<MorningRoundReport>();
 
     public DbSet<MorningRoundTemplateItem> MorningRoundTemplateItems => Set<MorningRoundTemplateItem>();
@@ -566,6 +568,39 @@ public class MaintTrackDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
 
         manager.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+
+        var exclusion = modelBuilder.Entity<MachineParameterMachineExclusion>();
+
+        exclusion.ToTable("machine_parameter_machine_visibility");
+
+        exclusion.HasKey(x => x.Id);
+
+        exclusion.Property(x => x.Id)
+            .HasColumnName("id");
+
+        exclusion.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        exclusion.Property(x => x.MachineId)
+            .HasColumnName("machine_id")
+            .IsRequired();
+
+        exclusion.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        exclusion.Ignore(x => x.UpdatedAt);
+
+        exclusion.HasIndex(x => new { x.TenantId, x.MachineId })
+            .IsUnique();
+
+        exclusion.HasOne(x => x.Machine)
+            .WithMany()
+            .HasForeignKey(x => x.MachineId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        exclusion.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
     private void ConfigureMorningRoundReport(ModelBuilder modelBuilder)
