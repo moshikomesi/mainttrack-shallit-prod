@@ -288,6 +288,7 @@ export const translations: Record<string, Record<Language, string>> = {
   'details.title': { en: 'Report Details', he: 'פרטי דוח', th: 'รายละเอียดรายงาน' },
   'details.reportInfo': { en: 'Report Information', he: 'מידע דוח', th: 'ข้อมูลรายงาน' },
   'details.submittedOn': { en: 'Submitted on', he: 'הוגש ב', th: 'ส่งเมื่อ' },
+  'details.faultTranslation': { en: 'Translation', he: 'תרגום', th: 'คำแปล' },
 
   // Reports List
   'reports.title': { en: 'View Reports', he: 'צפה בדוחות', th: 'ดูรายงาน' },

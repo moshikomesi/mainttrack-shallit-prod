@@ -72,6 +72,23 @@ public static class MaintenanceEntryEndpoints
             .WithName("GetMaintenanceEntryById")
             .WithOpenApi();
 
+        app.MapGet("/api/maintenance/{id:guid}/translations", async (
+                Guid id,
+                [FromServices] ICurrentUserContext currentUserContext,
+                [FromServices] IMaintenanceEntryService maintenanceEntryService,
+                CancellationToken cancellationToken) =>
+            {
+                if (currentUserContext.RoleId < 1)
+                    return Results.Forbid();
+
+                var response = await maintenanceEntryService.GetTranslationsAsync(id, cancellationToken);
+                return response is null ? Results.NotFound() : Results.Ok(response);
+            })
+            .RequireRateLimiting("api")
+            .RequireAuthorization()
+            .WithName("GetMaintenanceEntryTranslations")
+            .WithOpenApi();
+
         app.MapPost("/api/maintenance", async (
                 HttpRequest httpRequest,
                 [FromServices] ICurrentUserContext currentUserContext,

@@ -12,6 +12,11 @@ public sealed record EnqueueTranslationRequest(
 public sealed record EnqueueTranslationResult(TranslationJob Job, bool Created);
 
 /// <summary>
+/// Public-facing translation row: language, job status, and translated text only.
+/// </summary>
+public sealed record NarrativeTranslationRow(string Language, string? JobStatus, string? Text);
+
+/// <summary>
 /// The job id and claim token returned to the worker that successfully claimed the job.
 /// </summary>
 public sealed record TranslationClaim(Guid JobId, Guid ClaimToken);
@@ -27,6 +32,14 @@ public interface ITranslationRepository
 {
     Task<EnqueueTranslationResult> EnqueueAsync(
         EnqueueTranslationRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Persists every missing job in one transaction. If any insert fails, none of them are kept.
+    /// Jobs that already exist are returned with <c>Created = false</c>.
+    /// </summary>
+    Task<IReadOnlyList<EnqueueTranslationResult>> EnqueueAllAsync(
+        IReadOnlyList<EnqueueTranslationRequest> requests,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -76,5 +89,16 @@ public interface ITranslationRepository
         string fieldName,
         string sourceHash,
         string targetLanguage,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads language, job status, and translated text for one source version.
+    /// The result does not include job ids, claim tokens, errors, or attempt counts.
+    /// </summary>
+    Task<IReadOnlyList<NarrativeTranslationRow>> GetNarrativeTranslationsAsync(
+        Guid entityId,
+        string entityType,
+        string fieldName,
+        string sourceHash,
         CancellationToken cancellationToken);
 }

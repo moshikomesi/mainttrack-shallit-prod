@@ -13,6 +13,9 @@ namespace MaintTrack.Infrastructure.Translations;
 public sealed class TranslationRepository : ITranslationRepository
 {
     private const string PostgresProvider = "Npgsql.EntityFrameworkCore.PostgreSQL";
+    private const string SourceIntegrityError = "Source text does not match its source hash.";
+    private const string PostgresDeadlockSqlState = "40P01";
+    private const int EnqueueAllMaxAttempts = 3;
 
     private readonly MaintTrackDbContext _db;
     private readonly ITenantContext _tenantContext;
@@ -32,50 +35,11 @@ public sealed class TranslationRepository : ITranslationRepository
         if (_tenantContext.TenantId is not Guid tenantId)
             throw new InvalidOperationException("Tenant not resolved.");
 
-        var entityType = NormalizeRequired(request.EntityType, TranslationFieldLimits.EntityTypeMaxLength, "Entity type");
-        var fieldName = NormalizeRequired(request.FieldName, TranslationFieldLimits.FieldNameMaxLength, "Field name");
-        if (!TranslatableFields.IsAllowed(entityType, fieldName))
-            throw new InvalidOperationException($"{entityType}.{fieldName} cannot be translated.");
-
-        var targetLanguage = NormalizeLanguage(request.TargetLanguage);
-
-        if (request.EntityId == Guid.Empty)
-            throw new InvalidOperationException("Entity id is required.");
-
-        if (request.SourceText is null)
-            throw new InvalidOperationException("Source text is required.");
-
-        if (request.SourceText.Length == 0)
-            throw new InvalidOperationException("Source text is required.");
-
-        var sourceHash = SourceTextHasher.Compute(request.SourceText);
-        var existing = await FindJobAsync(
-            tenantId,
-            entityType,
-            request.EntityId,
-            fieldName,
-            sourceHash,
-            targetLanguage,
-            cancellationToken);
+        var job = CreatePendingJob(request, tenantId);
+        var existing = await FindJobAsync(job, cancellationToken);
 
         if (existing is not null)
             return new EnqueueTranslationResult(existing, false);
-
-        var now = DateTime.UtcNow;
-        var job = new TranslationJob
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            EntityType = entityType,
-            EntityId = request.EntityId,
-            FieldName = fieldName,
-            SourceText = request.SourceText,
-            SourceHash = sourceHash,
-            TargetLanguage = targetLanguage,
-            Status = TranslationJobStatus.Pending,
-            AttemptCount = 0,
-            CreatedAt = now
-        };
 
         _db.TranslationJobs.Add(job);
         try
@@ -86,14 +50,7 @@ public sealed class TranslationRepository : ITranslationRepository
         catch (DbUpdateException)
         {
             _db.Entry(job).State = EntityState.Detached;
-            var winner = await FindJobAsync(
-                tenantId,
-                entityType,
-                request.EntityId,
-                fieldName,
-                sourceHash,
-                targetLanguage,
-                cancellationToken);
+            var winner = await FindJobAsync(job, cancellationToken);
 
             if (winner is null)
                 throw;
@@ -102,6 +59,90 @@ public sealed class TranslationRepository : ITranslationRepository
         }
     }
 
+    public async Task<IReadOnlyList<EnqueueTranslationResult>> EnqueueAllAsync(
+        IReadOnlyList<EnqueueTranslationRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+
+        if (_tenantContext.TenantId is not Guid tenantId)
+            throw new InvalidOperationException("Tenant not resolved.");
+
+        if (requests.Count == 0)
+            return Array.Empty<EnqueueTranslationResult>();
+
+        // Validate shape and uniqueness once; each attempt builds fresh job rows.
+        var validationJobs = CreatePendingJobs(requests, tenantId);
+        var distinctKeys = validationJobs
+            .Select(job => (job.EntityType, job.EntityId, job.FieldName, job.SourceHash, job.TargetLanguage))
+            .Distinct()
+            .Count();
+        if (distinctKeys != validationJobs.Count)
+            throw new InvalidOperationException("Translation requests must not repeat the same source version and language.");
+
+        for (var attempt = 1; attempt <= EnqueueAllMaxAttempts; attempt++)
+        {
+            var candidates = attempt == 1 ? validationJobs : CreatePendingJobs(requests, tenantId);
+            var added = new List<TranslationJob>(candidates.Count);
+            try
+            {
+                await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
+                var results = new List<EnqueueTranslationResult>(candidates.Count);
+                foreach (var candidate in candidates)
+                {
+                    var existing = await FindJobAsync(candidate, cancellationToken);
+                    if (existing is not null)
+                    {
+                        results.Add(new EnqueueTranslationResult(existing, false));
+                        continue;
+                    }
+
+                    _db.TranslationJobs.Add(candidate);
+                    added.Add(candidate);
+                    results.Add(new EnqueueTranslationResult(candidate, true));
+                }
+
+                if (added.Count > 0)
+                    await _db.SaveChangesAsync(cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                return results;
+            }
+            catch (Exception exception) when (IsPostgresDeadlock(exception))
+            {
+                // await using has rolled back and disposed the failed transaction before this catch runs.
+                Detach(added);
+                if (attempt < EnqueueAllMaxAttempts)
+                    continue;
+
+                throw;
+            }
+            catch (DbUpdateException)
+            {
+                // The transaction has rolled back every insert from this call.
+                // A unique-key conflict means another caller committed the same jobs.
+                Detach(added);
+                var winners = new List<EnqueueTranslationResult>(candidates.Count);
+                foreach (var candidate in candidates)
+                {
+                    var winner = await FindJobAsync(candidate, cancellationToken);
+                    if (winner is null)
+                        throw;
+
+                    winners.Add(new EnqueueTranslationResult(winner, false));
+                }
+
+                return winners;
+            }
+            catch
+            {
+                Detach(added);
+                throw;
+            }
+        }
+
+        throw new InvalidOperationException("Translation enqueue exhausted its deadlock retries without returning.");
+    }
     public async Task<IReadOnlyList<TranslationJob>> ClaimPendingAsync(
         int batchSize,
         TimeSpan processingLease,
@@ -195,6 +236,26 @@ public sealed class TranslationRepository : ITranslationRepository
                 return TranslationCompletionResult.Stale;
             }
 
+            await transaction.CommitAsync(cancellationToken);
+            return TranslationCompletionResult.Stale;
+        }
+
+        if (!string.Equals(SourceTextHasher.Compute(job.SourceText), job.SourceHash, StringComparison.Ordinal))
+        {
+            // Retrying cannot repair a corrupted source, so only the current claim may fail it terminally.
+            var failedAt = DateTime.UtcNow;
+            await _db.TranslationJobs
+                .Where(item => item.Id == jobId
+                    && item.ClaimToken == claimToken
+                    && item.Status == TranslationJobStatus.Processing
+                    && item.SourceHash == job.SourceHash)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(item => item.Status, TranslationJobStatus.Failed)
+                        .SetProperty(item => item.LastError, SourceIntegrityError)
+                        .SetProperty(item => item.ProcessedAt, failedAt)
+                        .SetProperty(item => item.UpdatedAt, failedAt),
+                    cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return TranslationCompletionResult.Stale;
         }
@@ -338,8 +399,129 @@ public sealed class TranslationRepository : ITranslationRepository
                 cancellationToken);
     }
 
+    public async Task<IReadOnlyList<NarrativeTranslationRow>> GetNarrativeTranslationsAsync(
+        Guid entityId,
+        string entityType,
+        string fieldName,
+        string sourceHash,
+        CancellationToken cancellationToken)
+    {
+        if (_tenantContext.TenantId is not Guid tenantId)
+            throw new InvalidOperationException("Tenant not resolved.");
+
+        var jobs = await _db.TranslationJobs
+            .AsNoTracking()
+            .Where(job => job.TenantId == tenantId
+                && job.EntityId == entityId
+                && job.EntityType == entityType
+                && job.FieldName == fieldName
+                && job.SourceHash == sourceHash)
+            .Select(job => new { job.TargetLanguage, job.Status })
+            .ToListAsync(cancellationToken);
+
+        var texts = await _db.TranslatedTexts
+            .AsNoTracking()
+            .Where(item => item.TenantId == tenantId
+                && item.EntityId == entityId
+                && item.EntityType == entityType
+                && item.FieldName == fieldName
+                && item.SourceHash == sourceHash)
+            .Select(item => new { item.TargetLanguage, item.Text })
+            .ToListAsync(cancellationToken);
+
+        var rows = new Dictionary<string, NarrativeTranslationRow>(StringComparer.Ordinal);
+        foreach (var job in jobs)
+        {
+            rows[job.TargetLanguage] = new NarrativeTranslationRow(job.TargetLanguage, job.Status, null);
+        }
+
+        foreach (var text in texts)
+        {
+            rows.TryGetValue(text.TargetLanguage, out var existing);
+            rows[text.TargetLanguage] = new NarrativeTranslationRow(
+                text.TargetLanguage,
+                existing?.JobStatus,
+                text.Text);
+        }
+
+        return rows.Values.ToArray();
+    }
+
     private bool IsPostgres =>
         string.Equals(_db.Database.ProviderName, PostgresProvider, StringComparison.Ordinal);
+
+    private List<TranslationJob> CreatePendingJobs(
+        IReadOnlyList<EnqueueTranslationRequest> requests,
+        Guid tenantId) =>
+        requests
+            .Select(request => CreatePendingJob(
+                request ?? throw new ArgumentNullException(nameof(requests)),
+                tenantId))
+            .ToList();
+
+    private TranslationJob CreatePendingJob(EnqueueTranslationRequest request, Guid tenantId)
+    {
+        var entityType = NormalizeRequired(request.EntityType, TranslationFieldLimits.EntityTypeMaxLength, "Entity type");
+        var fieldName = NormalizeRequired(request.FieldName, TranslationFieldLimits.FieldNameMaxLength, "Field name");
+        if (!TranslatableFields.IsAllowed(entityType, fieldName))
+            throw new InvalidOperationException($"{entityType}.{fieldName} cannot be translated.");
+
+        var targetLanguage = NormalizeLanguage(request.TargetLanguage);
+
+        if (request.EntityId == Guid.Empty)
+            throw new InvalidOperationException("Entity id is required.");
+
+        if (request.SourceText is null)
+            throw new InvalidOperationException("Source text is required.");
+
+        if (request.SourceText.Length == 0)
+            throw new InvalidOperationException("Source text is required.");
+
+        return new TranslationJob
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            EntityType = entityType,
+            EntityId = request.EntityId,
+            FieldName = fieldName,
+            SourceText = request.SourceText,
+            SourceHash = SourceTextHasher.Compute(request.SourceText),
+            TargetLanguage = targetLanguage,
+            Status = TranslationJobStatus.Pending,
+            AttemptCount = 0,
+            CreatedAt = DateTime.UtcNow
+        };
+    }
+
+    private static bool IsPostgresDeadlock(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is PostgresException postgres
+                && string.Equals(postgres.SqlState, PostgresDeadlockSqlState, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private Task<TranslationJob?> FindJobAsync(TranslationJob candidate, CancellationToken cancellationToken) =>
+        FindJobAsync(
+            candidate.TenantId,
+            candidate.EntityType,
+            candidate.EntityId,
+            candidate.FieldName,
+            candidate.SourceHash,
+            candidate.TargetLanguage,
+            cancellationToken);
+
+    private void Detach(IEnumerable<TranslationJob> jobs)
+    {
+        foreach (var job in jobs)
+            _db.Entry(job).State = EntityState.Detached;
+    }
 
     private async Task<TranslationJob?> FindJobAsync(
         Guid tenantId,
