@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using MaintTrack.Application.Translations;
 
 namespace MaintTrack.Application.Maintenance;
 
@@ -17,4 +18,6 @@ public interface IMaintenanceEntryService
     Task<IReadOnlyList<MaintenanceEntryDto>> GetAsync(GetMaintenanceEntriesRequest request, CancellationToken ct);
 
     Task<MaintenanceEntryDto?> GetByIdAsync(Guid id, CancellationToken ct);
+
+    Task<MaintenanceTranslationsResponse?> GetTranslationsAsync(Guid id, CancellationToken ct);
 }

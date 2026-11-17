@@ -179,6 +179,11 @@ public sealed class TranslationWorkerTests : IAsyncDisposable
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<IReadOnlyList<EnqueueTranslationResult>> EnqueueAllAsync(
+            IReadOnlyList<EnqueueTranslationRequest> requests,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<bool> FailAsync(
             Guid jobId,
             Guid claimToken,
@@ -198,6 +203,14 @@ public sealed class TranslationWorkerTests : IAsyncDisposable
             string fieldName,
             string sourceHash,
             string targetLanguage,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<NarrativeTranslationRow>> GetNarrativeTranslationsAsync(
+            Guid entityId,
+            string entityType,
+            string fieldName,
+            string sourceHash,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }

@@ -11,6 +11,8 @@ public static class TranslationLanguages
 
     public const string Thai = "th";
 
+    public static readonly IReadOnlyList<string> Supported = new[] { Hebrew, English, Thai };
+
     public static bool IsSupported(string? language) =>
         language is Hebrew or English or Thai;
 }

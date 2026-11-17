@@ -23,6 +23,19 @@ export interface MaintenanceEntryDto {
   createdAt: string;
 }
 
+export type MaintenanceTranslationStatus = 'pending' | 'completed' | 'unavailable';
+
+export interface MaintenanceTranslationItemDto {
+  language: string;
+  status: MaintenanceTranslationStatus;
+  text: string | null;
+}
+
+export interface MaintenanceTranslationsResponse {
+  originalText: string;
+  translations: MaintenanceTranslationItemDto[];
+}
+
 export interface CreateMaintenanceEntryRequest {
   machineId: string;
   date: string;

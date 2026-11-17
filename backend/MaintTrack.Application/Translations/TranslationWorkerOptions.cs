@@ -12,6 +12,11 @@ public sealed class TranslationWorkerOptions
 
     public int ProcessingLeaseSeconds { get; set; } = 300;
 
+    /// <summary>
+    /// When false, maintenance report creation and translation reads do not touch translation tables.
+    /// </summary>
+    public bool EnqueueEnabled { get; set; }
+
     public TimeSpan PollingInterval =>
         TimeSpan.FromSeconds(Math.Max(1, PollingIntervalSeconds));
 
