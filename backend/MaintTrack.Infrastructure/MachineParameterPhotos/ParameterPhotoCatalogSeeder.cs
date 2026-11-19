@@ -11,11 +11,12 @@ namespace MaintTrack.Infrastructure.MachineParameterPhotos;
 
 public static class ParameterPhotoCatalogSeeder
 {
-    public static async Task EnsureAsync(
+    public static async Task<ParameterPhotoLinkResult?> EnsureAsync(
         MaintTrackDbContext dbContext,
         Guid tenantId,
         CancellationToken ct)
     {
+        var inserted = false;
         for (var attempt = 0; attempt < 3; attempt++)
         {
             try
@@ -23,12 +24,12 @@ public static class ParameterPhotoCatalogSeeder
                 if (!await AddMissingAsync(dbContext, tenantId, ct))
                 {
                     await SyncCanonicalSortOrdersAsync(dbContext, tenantId, ct);
-                    return;
+                    return null;
                 }
 
                 await dbContext.SaveChangesAsync(ct);
-                await SyncCanonicalSortOrdersAsync(dbContext, tenantId, ct);
-                return;
+                inserted = true;
+                break;
             }
             catch (DbUpdateException ex) when (IsUniqueViolation(ex))
             {
@@ -39,6 +40,36 @@ public static class ParameterPhotoCatalogSeeder
                 }
             }
         }
+
+        if (!inserted)
+        {
+            return null;
+        }
+
+        // The migration links photos that already exist at upgrade time.
+        // This catch-up runs only when the seeder itself inserts catalog rows,
+        // so a later catalog read does not write photo rows.
+        var linked = await LinkUnlinkedPhotosAsync(dbContext, tenantId, ct);
+        await SyncCanonicalSortOrdersAsync(dbContext, tenantId, ct);
+        return linked;
+    }
+
+    private static async Task<ParameterPhotoLinkResult?> LinkUnlinkedPhotosAsync(
+        MaintTrackDbContext dbContext,
+        Guid tenantId,
+        CancellationToken ct)
+    {
+        var hasUnlinked = await dbContext.MachineParameterPhotos
+            .IgnoreQueryFilters()
+            .AnyAsync(
+                photo => photo.TenantId == tenantId && photo.ParameterId == null && photo.MachineId != null,
+                ct);
+        if (!hasUnlinked)
+        {
+            return null;
+        }
+
+        return await ParameterPhotoLegacyLinker.LinkAsync(dbContext, tenantId, ct);
     }
 
     private static async Task<bool> AddMissingAsync(

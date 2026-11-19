@@ -498,6 +498,91 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         Assert.Equal(1, await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().CountAsync(photo => photo.ParameterId == _hopperParameterId));
     }
 
+    [Fact]
+    public async Task LegacyAssignAndDelete_WithoutManager_Return403()
+    {
+        var assign = await _client.PostAsJsonAsync(
+            $"/api/v1/machine-parameter-photos/legacy/{_photoId}/assign",
+            new { parameterId = _hopperParameterId });
+        Assert.Equal(HttpStatusCode.Forbidden, assign.StatusCode);
+
+        var delete = await _client.DeleteAsync($"/api/v1/machine-parameter-photos/legacy/{_photoId}");
+        Assert.Equal(HttpStatusCode.Forbidden, delete.StatusCode);
+
+        _dbContext.ChangeTracker.Clear();
+        var stored = await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().SingleAsync(photo => photo.Id == _photoId);
+        Assert.Equal(_hopperParameterId, stored.ParameterId);
+        Assert.Equal(_sharedMachineId, stored.MachineId);
+        Assert.Equal("/uploads/visible.jpg", stored.ImageUrl);
+        Assert.Empty(_storage.DeletedUrls);
+    }
+
+    [Fact]
+    public async Task LegacyAssign_AlreadyLinkedPhoto_ReturnsNotFound()
+    {
+        await GrantManagerAsync();
+        var coolingParameterId = await CoolingParameterIdAsync();
+
+        var assign = await _client.PostAsJsonAsync(
+            $"/api/v1/machine-parameter-photos/legacy/{_photoId}/assign",
+            new { parameterId = coolingParameterId });
+        Assert.Equal(HttpStatusCode.NotFound, assign.StatusCode);
+
+        _dbContext.ChangeTracker.Clear();
+        var stored = await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().SingleAsync(photo => photo.Id == _photoId);
+        Assert.Equal(_hopperParameterId, stored.ParameterId);
+        Assert.Equal(_sharedMachineId, stored.MachineId);
+        Assert.Equal("/uploads/visible.jpg", stored.ImageUrl);
+    }
+
+    [Fact]
+    public async Task LegacyAssign_OtherTenantPhoto_ReturnsNotFound()
+    {
+        await GrantManagerAsync();
+        var otherMachineId = Guid.NewGuid();
+        _dbContext.Machines.Add(new Machine
+        {
+            Id = otherMachineId,
+            TenantId = _otherTenantId,
+            Name = "machine.largeHopper",
+            Code = "HX",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        var otherLegacyId = Guid.NewGuid();
+        _dbContext.MachineParameterPhotos.Add(new MachineParameterPhoto
+        {
+            Id = otherLegacyId,
+            TenantId = _otherTenantId,
+            MachineId = otherMachineId,
+            ImageUrl = "/uploads/other-tenant-legacy.jpg",
+            SortOrder = 2,
+            CreatedByUserId = Guid.NewGuid(),
+            CreatedAt = DateTime.UtcNow
+        });
+        await _dbContext.SaveChangesAsync();
+        var coolingParameterId = await CoolingParameterIdAsync();
+
+        var assign = await _client.PostAsJsonAsync(
+            $"/api/v1/machine-parameter-photos/legacy/{otherLegacyId}/assign",
+            new { parameterId = coolingParameterId });
+        Assert.Equal(HttpStatusCode.NotFound, assign.StatusCode);
+
+        _dbContext.ChangeTracker.Clear();
+        var stored = await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().SingleAsync(photo => photo.Id == otherLegacyId);
+        Assert.Null(stored.ParameterId);
+        Assert.Equal(otherMachineId, stored.MachineId);
+        Assert.Equal("/uploads/other-tenant-legacy.jpg", stored.ImageUrl);
+    }
+
+    private async Task<Guid> CoolingParameterIdAsync() =>
+        await _dbContext.ParameterPhotoParameters
+            .Where(parameter =>
+                parameter.TenantId == _tenantId &&
+                parameter.NameKey == ParameterPhotoCatalog.CoolingSystemComputerKey)
+            .Select(parameter => parameter.Id)
+            .SingleAsync();
+
     private async Task GrantManagerAsync()
     {
         _dbContext.MachineParameterPhotoManagers.Add(new MachineParameterPhotoManager

@@ -1,11 +1,17 @@
+using System.Reflection;
+using MaintTrack.Application.MachineParameterPhotos;
 using MaintTrack.Domain.Arrays;
 using MaintTrack.Domain.MachineParameterPhotos;
 using MaintTrack.Infrastructure.MachineParameterPhotos;
+using MaintTrack.Infrastructure.Migrations;
 using MaintTrack.Infrastructure.Persistence;
 using MaintTrack.Infrastructure.Tenancy;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
+using Microsoft.Extensions.Logging;
 
 namespace MaintTrack.Tests.MachineParameterPhotos;
 
@@ -276,6 +282,421 @@ public sealed class ParameterPhotoReviewRemediationTests : IAsyncDisposable
         Assert.DoesNotContain("annual_plan_tasks", migration, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AssignLegacyPhoto_OverlappingAttempts_LetExactlyOneSucceed()
+    {
+        var connectionString = $"Data Source=file:assign-{Guid.NewGuid():N}?mode=memory&cache=shared;Default Timeout=5";
+        await using var keepAlive = new SqliteConnection(connectionString);
+        await keepAlive.OpenAsync();
+        var tenantId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var overlap = new OverlappingPhotoUpdateInterceptor();
+        var options = new DbContextOptionsBuilder<MaintTrackDbContext>()
+            .UseSqlite(connectionString)
+            .AddInterceptors(overlap)
+            .Options;
+
+        Guid firstParameterId;
+        Guid secondParameterId;
+        Guid hopperParameterId;
+        Guid photoId;
+        Guid machineId;
+        await using (var setup = new MaintTrackDbContext(options, new TenantContext { TenantId = tenantId }))
+        {
+            setup.Database.SetCommandTimeout(5);
+            await setup.Database.EnsureCreatedAsync();
+            setup.Roles.Add(new MaintTrack.Domain.Users.Role { Id = 1, Name = "Worker" });
+            setup.Users.Add(new MaintTrack.Domain.Users.User
+            {
+                Id = userId,
+                TenantId = tenantId,
+                Username = "assign-manager",
+                Email = "assign@example.com",
+                PasswordHash = "hash",
+                DisplayName = "Assign Manager",
+                RoleId = 1,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await setup.SaveChangesAsync();
+            await ParameterPhotoCatalogSeeder.EnsureAsync(setup, tenantId, CancellationToken.None);
+            var array = new WorkGroup
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                NameKey = "array.washing_system",
+                SortOrder = 1,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            setup.Arrays.Add(array);
+            machineId = Guid.NewGuid();
+            setup.Machines.Add(new MaintTrack.Domain.Machines.Machine
+            {
+                Id = machineId,
+                TenantId = tenantId,
+                Name = "machine.largeHopper",
+                Code = "H1",
+                ArrayId = array.Id,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            setup.MachineParameterPhotoManagers.Add(new MachineParameterPhotoManager
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                UserId = userId,
+                CreatedAt = DateTime.UtcNow
+            });
+            await setup.SaveChangesAsync();
+            firstParameterId = await setup.ParameterPhotoParameters
+                .Where(parameter => parameter.TenantId == tenantId && parameter.NameKey == ParameterPhotoCatalog.CoolingSystemComputerKey)
+                .Select(parameter => parameter.Id)
+                .SingleAsync();
+            secondParameterId = await setup.ParameterPhotoParameters
+                .Where(parameter => parameter.TenantId == tenantId && parameter.NameKey == ParameterPhotoCatalog.CompressorRoomsKey)
+                .Select(parameter => parameter.Id)
+                .SingleAsync();
+            hopperParameterId = await setup.ParameterPhotoParameters
+                .Where(parameter => parameter.TenantId == tenantId && parameter.NameKey == ParameterPhotoCatalog.HopperKey)
+                .Select(parameter => parameter.Id)
+                .SingleAsync();
+            photoId = Guid.NewGuid();
+            setup.MachineParameterPhotos.Add(new MachineParameterPhoto
+            {
+                Id = photoId,
+                TenantId = tenantId,
+                MachineId = machineId,
+                ImageUrl = "/uploads/overlap.jpg",
+                SortOrder = 1,
+                CreatedByUserId = userId,
+                CreatedAt = DateTime.UtcNow
+            });
+            await setup.SaveChangesAsync();
+        }
+
+        overlap.Arm();
+        var overlapGate = new Barrier(2);
+        var overlapScope = new AsyncLocal<Barrier?>();
+        overlapScope.Value = overlapGate;
+        MachineParameterPhotoService.BeforeAssignmentPersistAsync = async cancellationToken =>
+        {
+            await Task.Yield();
+            var gate = overlapScope.Value;
+            if (gate is null)
+            {
+                return;
+            }
+
+            var overlapped = await Task.Run(
+                () => gate.SignalAndWait(TimeSpan.FromSeconds(8)),
+                cancellationToken);
+            if (!overlapped)
+            {
+                throw new TimeoutException("The two assignment attempts did not overlap.");
+            }
+        };
+        try
+        {
+        await using var firstContext = new MaintTrackDbContext(options, new TenantContext { TenantId = tenantId });
+        await using var secondContext = new MaintTrackDbContext(options, new TenantContext { TenantId = tenantId });
+        firstContext.Database.SetCommandTimeout(5);
+        secondContext.Database.SetCommandTimeout(5);
+        var firstService = CreateService(firstContext, tenantId, userId);
+        var secondService = CreateService(secondContext, tenantId, userId);
+
+        var firstAttempt = firstService.AssignLegacyPhotoAsync(photoId, firstParameterId, CancellationToken.None);
+        var secondAttempt = secondService.AssignLegacyPhotoAsync(photoId, secondParameterId, CancellationToken.None);
+        var outcomes = await Task.WhenAll(CaptureAsync(firstAttempt), CaptureAsync(secondAttempt));
+
+        Assert.Equal(2, overlap.AssignmentUpdates);
+        Assert.All(overlap.AssignmentSql, sql =>
+        {
+            Assert.Contains("parameter_id", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("NULL", sql, StringComparison.OrdinalIgnoreCase);
+        });
+        var succeeded = outcomes.Where(outcome => outcome.Photo is not null).ToList();
+        var failed = outcomes.Where(outcome => outcome.Error is not null).ToList();
+        Assert.Single(succeeded);
+        var failure = Assert.Single(failed);
+        Assert.IsType<KeyNotFoundException>(failure.Error);
+        Assert.Contains(succeeded[0].Photo!.ParameterId, new[] { firstParameterId, secondParameterId });
+
+        await using var verify = new MaintTrackDbContext(options, new TenantContext { TenantId = tenantId });
+        var stored = await verify.MachineParameterPhotos.IgnoreQueryFilters().SingleAsync(photo => photo.Id == photoId);
+        Assert.Equal(succeeded[0].Photo!.ParameterId, stored.ParameterId);
+        Assert.NotEqual(hopperParameterId, stored.ParameterId);
+        Assert.Equal(machineId, stored.MachineId);
+        Assert.Equal("/uploads/overlap.jpg", stored.ImageUrl);
+        Assert.Equal(1, await verify.MachineParameterPhotos.IgnoreQueryFilters().CountAsync());
+        }
+        finally
+        {
+            MachineParameterPhotoService.BeforeAssignmentPersistAsync = null;
+        }
+    }
+
+    [Fact]
+    public async Task RepeatedCatalogLoads_DoNotRunLegacyLinkUpdates()
+    {
+        var connectionString = $"Data Source=file:catalog-read-{Guid.NewGuid():N}?mode=memory&cache=shared";
+        await using var keepAlive = new SqliteConnection(connectionString);
+        await keepAlive.OpenAsync();
+        var tenantId = Guid.NewGuid();
+        var updates = new UpdateCommandCounter();
+        var options = new DbContextOptionsBuilder<MaintTrackDbContext>()
+            .UseSqlite(connectionString)
+            .AddInterceptors(updates)
+            .Options;
+        var tenant = new TenantContext { TenantId = tenantId };
+        Guid photoId;
+        Guid machineId;
+        await using (var setup = new MaintTrackDbContext(options, tenant))
+        {
+            await setup.Database.EnsureCreatedAsync();
+            await ParameterPhotoCatalogSeeder.EnsureAsync(setup, tenantId, CancellationToken.None);
+            var array = new WorkGroup
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                NameKey = "array.packing_house",
+                SortOrder = 1,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            setup.Arrays.Add(array);
+            machineId = Guid.NewGuid();
+            setup.Machines.Add(new MaintTrack.Domain.Machines.Machine
+            {
+                Id = machineId,
+                TenantId = tenantId,
+                Name = "machine.viscose",
+                Code = "V1",
+                ArrayId = array.Id,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            var hopperMachineId = Guid.NewGuid();
+            setup.Machines.Add(new MaintTrack.Domain.Machines.Machine
+            {
+                Id = hopperMachineId,
+                TenantId = tenantId,
+                Name = "machine.largeHopper",
+                Code = "H1",
+                ArrayId = array.Id,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await setup.SaveChangesAsync();
+            photoId = Guid.NewGuid();
+            setup.MachineParameterPhotos.AddRange(
+                new MachineParameterPhoto
+                {
+                    Id = photoId,
+                    TenantId = tenantId,
+                    MachineId = machineId,
+                    ImageUrl = "/uploads/viscose-unlinked.jpg",
+                    SortOrder = 4,
+                    CreatedByUserId = Guid.NewGuid(),
+                    CreatedAt = DateTime.UtcNow
+                },
+                new MachineParameterPhoto
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    MachineId = hopperMachineId,
+                    ImageUrl = "/uploads/large-hopper.jpg",
+                    SortOrder = 1,
+                    CreatedByUserId = Guid.NewGuid(),
+                    CreatedAt = DateTime.UtcNow
+                });
+            await setup.SaveChangesAsync();
+        }
+
+        updates.Reset();
+        var logger = new CollectingLogger();
+        await using var db = new MaintTrackDbContext(options, tenant);
+        var service = new MachineParameterPhotoService(
+            db,
+            tenant,
+            new StubCurrentUserContext(tenantId, Guid.NewGuid()),
+            new RecordingFileStorageService(),
+            logger);
+        var before = await db.MachineParameterPhotos.AsNoTracking().IgnoreQueryFilters().OrderBy(photo => photo.ImageUrl).ToListAsync();
+
+        await service.GetCatalogAsync(CancellationToken.None);
+        await service.GetCatalogAsync(CancellationToken.None);
+
+        var after = await db.MachineParameterPhotos.AsNoTracking().IgnoreQueryFilters().OrderBy(photo => photo.ImageUrl).ToListAsync();
+        Assert.Equal(0, updates.UpdateCount);
+        Assert.Empty(logger.Messages);
+        Assert.Equal(before.Select(Snapshot), after.Select(Snapshot));
+        Assert.All(after, photo => Assert.Null(photo.ParameterId));
+        Assert.Contains(after, photo => photo.Id == photoId && photo.MachineId == machineId && photo.ImageUrl == "/uploads/viscose-unlinked.jpg");
+    }
+
+    [Fact]
+    public async Task CatalogInitialization_LinksUniquePhotosOnce_AndWarnsWithoutClaimingAllLinkingWasSkipped()
+    {
+        var logger = new CollectingLogger();
+        var service = new MachineParameterPhotoService(
+            _fx.DbContext,
+            _fx.TenantContext,
+            _fx.CurrentUser,
+            _fx.Storage,
+            logger);
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.packing_house");
+        var viscoseA = await _fx.SeedMachineAsync(_fx.TenantId, "machine.viscose", "V1", array.Id);
+        var viscoseB = await _fx.SeedMachineAsync(_fx.TenantId, "machine.viscose", "V2", array.Id);
+        var sorter = await _fx.SeedMachineAsync(_fx.TenantId, "machine.sorter1", "S1", array.Id);
+        var large = await _fx.SeedMachineAsync(_fx.TenantId, "machine.largeHopper", "H1", array.Id);
+        var small = await _fx.SeedMachineAsync(_fx.TenantId, "machine.smallHopper", "H2", array.Id);
+        var onion = await _fx.SeedMachineAsync(_fx.TenantId, "machine.onion.hopper", "OH", array.Id);
+        var ambiguousA = await _fx.SeedPhotoAsync(_fx.TenantId, null, 1, viscoseA.Id, "/uploads/ambiguous-a.jpg");
+        var ambiguousB = await _fx.SeedPhotoAsync(_fx.TenantId, null, 1, viscoseB.Id, "/uploads/ambiguous-b.jpg");
+        var unique = await _fx.SeedPhotoAsync(_fx.TenantId, null, 2, sorter.Id, "/uploads/sorter-unique.jpg");
+        var largePhoto = await _fx.SeedPhotoAsync(_fx.TenantId, null, 1, large.Id, "/uploads/large.jpg");
+        var smallPhoto = await _fx.SeedPhotoAsync(_fx.TenantId, null, 1, small.Id, "/uploads/small.jpg");
+        var onionPhoto = await _fx.SeedPhotoAsync(_fx.TenantId, null, 1, onion.Id, "/uploads/onion.jpg");
+
+        await service.GetCatalogAsync(CancellationToken.None);
+        await service.GetCatalogAsync(CancellationToken.None);
+
+        Assert.Contains("were still linked", ParameterPhotoLegacyLinker.AmbiguousNamesMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("Skipped legacy", ParameterPhotoLegacyLinker.AmbiguousNamesMessage, StringComparison.Ordinal);
+        var warning = Assert.Single(logger.Messages);
+        Assert.Contains("machine.viscose", warning, StringComparison.Ordinal);
+        Assert.Contains("were still linked", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("Skipped legacy", warning, StringComparison.Ordinal);
+
+        _fx.DbContext.ChangeTracker.Clear();
+        var photos = await _fx.DbContext.MachineParameterPhotos.IgnoreQueryFilters().AsNoTracking().ToListAsync();
+        var sorterParameterId = await _fx.DbContext.ParameterPhotoParameters
+            .Where(parameter => parameter.TenantId == _fx.TenantId && parameter.NameKey == "machine.sorter1")
+            .Select(parameter => parameter.Id)
+            .SingleAsync();
+        var hopperParameterId = await _fx.DbContext.ParameterPhotoParameters
+            .Where(parameter => parameter.TenantId == _fx.TenantId && parameter.NameKey == ParameterPhotoCatalog.HopperKey)
+            .Select(parameter => parameter.Id)
+            .SingleAsync();
+        Assert.Equal(sorterParameterId, photos.Single(photo => photo.Id == unique.Id).ParameterId);
+        Assert.Equal(sorter.Id, photos.Single(photo => photo.Id == unique.Id).MachineId);
+        Assert.Equal("/uploads/sorter-unique.jpg", photos.Single(photo => photo.Id == unique.Id).ImageUrl);
+        Assert.Equal(2, photos.Single(photo => photo.Id == unique.Id).SortOrder);
+        Assert.Null(photos.Single(photo => photo.Id == ambiguousA.Id).ParameterId);
+        Assert.Null(photos.Single(photo => photo.Id == ambiguousB.Id).ParameterId);
+        Assert.Null(photos.Single(photo => photo.Id == largePhoto.Id).ParameterId);
+        Assert.Null(photos.Single(photo => photo.Id == smallPhoto.Id).ParameterId);
+        Assert.Null(photos.Single(photo => photo.Id == onionPhoto.Id).ParameterId);
+        Assert.Equal(large.Id, photos.Single(photo => photo.Id == largePhoto.Id).MachineId);
+        Assert.Equal("/uploads/large.jpg", photos.Single(photo => photo.Id == largePhoto.Id).ImageUrl);
+        Assert.DoesNotContain(photos, photo => photo.ParameterId == hopperParameterId);
+    }
+
+    [Fact]
+    public async Task AssignLegacyPhoto_UsesNextSortWhenTargetSortIsTaken()
+    {
+        await GrantAsync();
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
+        var target = await _fx.DbContext.ParameterPhotoParameters.SingleAsync(parameter =>
+            parameter.TenantId == _fx.TenantId &&
+            parameter.NameKey == ParameterPhotoCatalog.CoolingSystemComputerKey);
+        var existing = await _fx.SeedPhotoAsync(_fx.TenantId, target.Id, 4, machineId: null, "/uploads/existing-sort.jpg");
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.washing_system");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.largeHopper", "H1", array.Id);
+        var legacy = await _fx.SeedPhotoAsync(_fx.TenantId, null, 4, machine.Id, "/uploads/legacy-sort.jpg");
+
+        var assigned = await _fx.Service.AssignLegacyPhotoAsync(legacy.Id, target.Id, CancellationToken.None);
+
+        Assert.Equal(target.Id, assigned.ParameterId);
+        Assert.Equal(5, assigned.SortOrder);
+        _fx.DbContext.ChangeTracker.Clear();
+        var storedLegacy = await _fx.DbContext.MachineParameterPhotos.AsNoTracking().SingleAsync(photo => photo.Id == legacy.Id);
+        var storedExisting = await _fx.DbContext.MachineParameterPhotos.AsNoTracking().SingleAsync(photo => photo.Id == existing.Id);
+        Assert.Equal(machine.Id, storedLegacy.MachineId);
+        Assert.Equal("/uploads/legacy-sort.jpg", storedLegacy.ImageUrl);
+        Assert.Equal(5, storedLegacy.SortOrder);
+        Assert.Equal(target.Id, storedExisting.ParameterId);
+        Assert.Equal(4, storedExisting.SortOrder);
+        Assert.Equal("/uploads/existing-sort.jpg", storedExisting.ImageUrl);
+        Assert.Null(storedExisting.MachineId);
+    }
+
+    [Fact]
+    public void CatalogMigrationDown_StopsBeforeSchemaChangesWhenParameterPhotosWouldBeLost()
+    {
+        var operations = DownOperations<AddIndependentParameterPhotoCatalog>();
+        var guard = Assert.IsType<SqlOperation>(operations[0]);
+        Assert.Equal(ParameterPhotoRollbackGuard.Sql, guard.Sql);
+        Assert.Contains("RAISE EXCEPTION", guard.Sql, StringComparison.Ordinal);
+        Assert.All(operations.Skip(1), operation => Assert.IsNotType<SqlOperation>(operation));
+
+        using var connection = OpenMigrationConnection();
+        CreateMigrationSchema(connection, includeExclusions: false);
+        var photoId = Guid.NewGuid();
+        var machineId = Guid.NewGuid();
+        var parameterId = Guid.NewGuid();
+        InsertMigrationPhoto(connection, photoId, machineId, parameterId, "/uploads/kept.jpg");
+
+        var exception = Assert.Throws<InvalidOperationException>(() => MigrationDownRunner.Apply(operations, connection));
+
+        Assert.Equal(ParameterPhotoRollbackGuard.Message, exception.Message);
+        var stored = ReadMigrationPhoto(connection, photoId);
+        Assert.Equal(machineId, stored.MachineId);
+        Assert.Equal(parameterId, stored.ParameterId);
+        Assert.Equal("/uploads/kept.jpg", stored.ImageUrl);
+        Assert.Equal(1, CountMigrationPhotos(connection));
+        Assert.True(TableExists(connection, "parameter_photo_parameters"));
+        Assert.True(TableExists(connection, "parameter_photo_groups"));
+        Assert.True(ColumnExists(connection, "machine_parameter_photos", "parameter_id"));
+    }
+
+    [Fact]
+    public void CatalogMigrationDown_KeepsLegacyRowsWhenRollbackIsAllowed()
+    {
+        var operations = DownOperations<AddIndependentParameterPhotoCatalog>();
+        using var connection = OpenMigrationConnection();
+        CreateMigrationSchema(connection, includeExclusions: false);
+        var photoId = Guid.NewGuid();
+        var machineId = Guid.NewGuid();
+        InsertMigrationPhoto(connection, photoId, machineId, parameterId: null, "/uploads/legacy-kept.jpg");
+
+        MigrationDownRunner.Apply(operations, connection);
+
+        var stored = ReadMigrationPhoto(connection, photoId);
+        Assert.Equal(machineId, stored.MachineId);
+        Assert.Null(stored.ParameterId);
+        Assert.Equal("/uploads/legacy-kept.jpg", stored.ImageUrl);
+        Assert.Equal(1, CountMigrationPhotos(connection));
+        Assert.False(ColumnExists(connection, "machine_parameter_photos", "parameter_id"));
+        Assert.False(TableExists(connection, "parameter_photo_parameters"));
+        Assert.False(TableExists(connection, "parameter_photo_groups"));
+    }
+
+    [Fact]
+    public void RemediationMigrationDown_RemovesExclusionsWithoutDeletingPhotos()
+    {
+        var operations = DownOperations<AddParameterPhotoReviewRemediation>();
+        Assert.DoesNotContain(operations, operation => operation is SqlOperation sql && sql.Sql.Contains("DELETE", StringComparison.OrdinalIgnoreCase));
+
+        using var connection = OpenMigrationConnection();
+        CreateMigrationSchema(connection, includeExclusions: true);
+        var photoId = Guid.NewGuid();
+        var machineId = Guid.NewGuid();
+        var parameterId = Guid.NewGuid();
+        InsertMigrationPhoto(connection, photoId, machineId, parameterId, "/uploads/still-here.jpg");
+
+        MigrationDownRunner.Apply(operations, connection);
+
+        var stored = ReadMigrationPhoto(connection, photoId);
+        Assert.Equal(machineId, stored.MachineId);
+        Assert.Equal(parameterId, stored.ParameterId);
+        Assert.Equal("/uploads/still-here.jpg", stored.ImageUrl);
+        Assert.Equal(1, CountMigrationPhotos(connection));
+        Assert.False(TableExists(connection, "parameter_photo_parameter_exclusions"));
+        Assert.True(TableExists(connection, "parameter_photo_parameters"));
+    }
+
     private async Task GrantAsync()
     {
         await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
@@ -321,6 +742,165 @@ public sealed class ParameterPhotoReviewRemediationTests : IAsyncDisposable
         throw new InvalidOperationException($"{fileName} was not found.");
     }
 
+    private static MachineParameterPhotoService CreateService(MaintTrackDbContext dbContext, Guid tenantId, Guid userId) =>
+        new(
+            dbContext,
+            new TenantContext { TenantId = tenantId },
+            new StubCurrentUserContext(tenantId, userId),
+            new RecordingFileStorageService(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<MachineParameterPhotoService>.Instance);
+
+    private static async Task<(MachineParameterPhotoDto? Photo, Exception? Error)> CaptureAsync(
+        Task<MachineParameterPhotoDto> assignment)
+    {
+        try
+        {
+            return (await assignment, null);
+        }
+        catch (Exception ex)
+        {
+            return (null, ex);
+        }
+    }
+
+    private static string Snapshot(MachineParameterPhoto photo) =>
+        $"{photo.Id:N}|{photo.ParameterId:N}|{photo.MachineId:N}|{photo.ImageUrl}|{photo.SortOrder}";
+
+    private static IReadOnlyList<MigrationOperation> DownOperations<TMigration>()
+        where TMigration : Migration, new()
+    {
+        var migration = new TMigration();
+        var builder = new MigrationBuilder("Npgsql.EntityFrameworkCore.PostgreSQL");
+        var method = typeof(TMigration).GetMethod(
+            "Down",
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            types: new[] { typeof(MigrationBuilder) },
+            modifiers: null);
+        method!.Invoke(migration, new object[] { builder });
+        return builder.Operations;
+    }
+
+    private static SqliteConnection OpenMigrationConnection()
+    {
+        var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        return connection;
+    }
+
+    private static void CreateMigrationSchema(SqliteConnection connection, bool includeExclusions)
+    {
+        Execute(
+            connection,
+            """
+            CREATE TABLE parameter_photo_groups (
+                id TEXT NOT NULL PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                name_key TEXT NOT NULL
+            );
+            CREATE TABLE parameter_photo_parameters (
+                id TEXT NOT NULL PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                name_key TEXT NOT NULL
+            );
+            CREATE TABLE machine_parameter_photos (
+                id TEXT NOT NULL PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                machine_id TEXT NULL,
+                parameter_id TEXT NULL,
+                image_url TEXT NOT NULL,
+                sort_order INTEGER NOT NULL,
+                created_by_user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """);
+        if (includeExclusions)
+        {
+            Execute(
+                connection,
+                """
+                CREATE TABLE parameter_photo_parameter_exclusions (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    parameter_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                """);
+        }
+    }
+
+    private static void InsertMigrationPhoto(
+        SqliteConnection connection,
+        Guid photoId,
+        Guid machineId,
+        Guid? parameterId,
+        string imageUrl)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            INSERT INTO machine_parameter_photos
+                (id, tenant_id, machine_id, parameter_id, image_url, sort_order, created_by_user_id, created_at)
+            VALUES
+                ($id, $tenant, $machine, $parameter, $url, 1, $user, $created);
+            """;
+        command.Parameters.AddWithValue("$id", photoId.ToString());
+        command.Parameters.AddWithValue("$tenant", Guid.NewGuid().ToString());
+        command.Parameters.AddWithValue("$machine", machineId.ToString());
+        command.Parameters.AddWithValue("$parameter", (object?)parameterId?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$url", imageUrl);
+        command.Parameters.AddWithValue("$user", Guid.NewGuid().ToString());
+        command.Parameters.AddWithValue("$created", DateTime.UtcNow.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    private static (Guid? MachineId, Guid? ParameterId, string ImageUrl) ReadMigrationPhoto(SqliteConnection connection, Guid photoId)
+    {
+        using var command = connection.CreateCommand();
+        var parameterColumn = ColumnExists(connection, "machine_parameter_photos", "parameter_id")
+            ? "parameter_id"
+            : "NULL";
+        command.CommandText = $"SELECT machine_id, {parameterColumn}, image_url FROM machine_parameter_photos WHERE id = $id";
+        command.Parameters.AddWithValue("$id", photoId.ToString());
+        using var reader = command.ExecuteReader();
+        Assert.True(reader.Read());
+        return (
+            reader.IsDBNull(0) ? null : Guid.Parse(reader.GetString(0)),
+            reader.IsDBNull(1) ? null : Guid.Parse(reader.GetString(1)),
+            reader.GetString(2));
+    }
+
+    private static int CountMigrationPhotos(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM machine_parameter_photos";
+        return Convert.ToInt32(command.ExecuteScalar());
+    }
+
+    private static bool TableExists(SqliteConnection connection, string table)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name";
+        command.Parameters.AddWithValue("$name", table);
+        return command.ExecuteScalar() is not null;
+    }
+
+    private static bool ColumnExists(SqliteConnection connection, string table, string column)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT 1 FROM pragma_table_info('{table}') WHERE name = $name";
+        command.Parameters.AddWithValue("$name", column);
+        return command.ExecuteScalar() is not null;
+    }
+
+    private static void Execute(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
+
     private static string FindSource(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -341,6 +921,177 @@ public sealed class ParameterPhotoReviewRemediationTests : IAsyncDisposable
         }
 
         throw new InvalidOperationException($"{fileName} was not found.");
+    }
+
+    private sealed class MigrationDownRunner
+    {
+        public static void Apply(IReadOnlyList<MigrationOperation> operations, SqliteConnection connection)
+        {
+            using var transaction = connection.BeginTransaction();
+            foreach (var operation in operations)
+            {
+                switch (operation)
+                {
+                    case SqlOperation sql when sql.Sql.Contains("DELETE FROM", StringComparison.OrdinalIgnoreCase):
+                        throw new InvalidOperationException("Down deletes rows.");
+                    case SqlOperation sql when sql.Sql.Contains("RAISE EXCEPTION", StringComparison.Ordinal):
+                        if (ParameterPhotosExist(connection, transaction))
+                        {
+                            transaction.Rollback();
+                            throw new InvalidOperationException(ParameterPhotoRollbackGuard.Message);
+                        }
+
+                        break;
+                    case DropTableOperation dropTable:
+                        Execute(connection, transaction, $"DROP TABLE IF EXISTS {Quote(dropTable.Name)}");
+                        break;
+                    case DropColumnOperation dropColumn:
+                        Execute(connection, transaction, $"ALTER TABLE {Quote(dropColumn.Table)} DROP COLUMN {Quote(dropColumn.Name)}");
+                        break;
+                    case DropIndexOperation dropIndex:
+                        Execute(connection, transaction, $"DROP INDEX IF EXISTS {Quote(dropIndex.Name)}");
+                        break;
+                    case DropUniqueConstraintOperation dropConstraint:
+                        Execute(connection, transaction, $"DROP INDEX IF EXISTS {Quote(dropConstraint.Name)}");
+                        break;
+                    case CreateIndexOperation createIndex:
+                        var columns = string.Join(", ", createIndex.Columns.Select(Quote));
+                        var unique = createIndex.IsUnique ? "UNIQUE " : string.Empty;
+                        Execute(
+                            connection,
+                            transaction,
+                            $"CREATE {unique}INDEX IF NOT EXISTS {Quote(createIndex.Name)} ON {Quote(createIndex.Table)} ({columns})");
+                        break;
+                    case AlterColumnOperation alter when alter.Name == "machine_id" && !alter.IsNullable:
+                        using (var check = connection.CreateCommand())
+                        {
+                            check.Transaction = transaction;
+                            check.CommandText = $"SELECT COUNT(*) FROM {Quote(alter.Table)} WHERE {Quote(alter.Name)} IS NULL";
+                            if (Convert.ToInt64(check.ExecuteScalar()) > 0)
+                            {
+                                throw new InvalidOperationException("Rollback found a null machine_id. Photo rows were not deleted.");
+                            }
+                        }
+
+                        break;
+                    case DropForeignKeyOperation:
+                    case DropCheckConstraintOperation:
+                    case AddForeignKeyOperation:
+                        break;
+                    default:
+                        throw new InvalidOperationException($"Unhandled Down operation {operation.GetType().Name}.");
+                }
+            }
+
+            transaction.Commit();
+        }
+
+        private static bool ParameterPhotosExist(SqliteConnection connection, System.Data.Common.DbTransaction transaction)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = (SqliteTransaction)transaction;
+            command.CommandText = "SELECT COUNT(*) FROM machine_parameter_photos WHERE parameter_id IS NOT NULL";
+            return Convert.ToInt64(command.ExecuteScalar()) > 0;
+        }
+
+        private static void Execute(SqliteConnection connection, System.Data.Common.DbTransaction transaction, string sql)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = (SqliteTransaction)transaction;
+            command.CommandText = sql;
+            command.ExecuteNonQuery();
+        }
+
+        private static string Quote(string identifier) => "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+    }
+
+    private sealed class OverlappingPhotoUpdateInterceptor : DbCommandInterceptor
+    {
+        private int _armed;
+
+        public int AssignmentUpdates { get; private set; }
+
+        public List<string> AssignmentSql { get; } = new();
+
+        public void Arm() => _armed = 1;
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            System.Data.Common.DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (_armed == 1 && IsAssignmentUpdate(command.CommandText))
+            {
+                lock (AssignmentSql)
+                {
+                    AssignmentUpdates++;
+                    AssignmentSql.Add(command.CommandText);
+                }
+            }
+
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private static bool IsAssignmentUpdate(string sql) =>
+            sql.Contains("UPDATE", StringComparison.OrdinalIgnoreCase) &&
+            sql.Contains("machine_parameter_photos", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class UpdateCommandCounter : DbCommandInterceptor
+    {
+        public int UpdateCount { get; private set; }
+
+        public void Reset() => UpdateCount = 0;
+
+        public override InterceptionResult<int> NonQueryExecuting(
+            System.Data.Common.DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result)
+        {
+            Count(command.CommandText);
+            return result;
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            System.Data.Common.DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            Count(command.CommandText);
+            return new ValueTask<InterceptionResult<int>>(result);
+        }
+
+        private void Count(string sql)
+        {
+            if (sql.Contains("UPDATE", StringComparison.OrdinalIgnoreCase))
+            {
+                UpdateCount++;
+            }
+        }
+    }
+
+    private sealed class CollectingLogger : ILogger<MachineParameterPhotoService>
+    {
+        public List<string> Messages { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Warning)
+            {
+                Messages.Add(formatter(state, exception));
+            }
+        }
     }
 
     private sealed class ConcurrentSeedInterceptor : SaveChangesInterceptor

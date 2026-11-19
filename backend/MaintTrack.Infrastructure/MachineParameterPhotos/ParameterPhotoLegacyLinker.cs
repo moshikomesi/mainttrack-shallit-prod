@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -21,6 +22,11 @@ public sealed record ParameterPhotoLinkResult(
 /// </summary>
 public static class ParameterPhotoLegacyLinker
 {
+    public const string AmbiguousNamesMessage =
+        "Legacy Parameter Photos linking left some photos unlinked for tenant {TenantId} because these machine names are duplicated. Photos whose machine name is unique in the tenant were still linked: {MachineNames}";
+
+    private static readonly ConcurrentDictionary<string, byte> ReportedAmbiguousNames = new();
+
     private const string AssignmentAndGuards =
         """
         SET parameter_id = (
@@ -134,5 +140,20 @@ public static class ParameterPhotoLegacyLinker
             : await dbContext.Database.ExecuteSqlRawAsync(sql, ct);
 
         return new ParameterPhotoLinkResult(linkedCount, ambiguousMachineNames);
+    }
+
+    /// <summary>
+    /// Returns true the first time this process should log a duplicate-name result.
+    /// Later catalog reads do not link, and the same names are not logged again.
+    /// </summary>
+    public static bool ShouldLogAmbiguousNames(Guid? tenantId, IReadOnlyList<string> machineNames)
+    {
+        if (machineNames.Count == 0)
+        {
+            return false;
+        }
+
+        var key = (tenantId?.ToString("N") ?? "*") + "|" + string.Join("|", machineNames);
+        return ReportedAmbiguousNames.TryAdd(key, 0);
     }
 }
