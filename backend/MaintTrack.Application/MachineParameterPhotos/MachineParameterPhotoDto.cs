@@ -27,6 +27,16 @@ public sealed record ParameterPhotoCatalogDto(
     IReadOnlyList<ParameterPhotoGroupDto> Groups,
     bool CanManage);
 
+public sealed record LegacyParameterPhotoDto(
+    Guid Id,
+    Guid MachineId,
+    string MachineName,
+    string MachineCode,
+    string ImageUrl,
+    int SortOrder,
+    Guid CreatedByUserId,
+    DateTime CreatedAt);
+
 public sealed record MachineParameterPhotoUploadFile(
     Stream Stream,
     string FileName,

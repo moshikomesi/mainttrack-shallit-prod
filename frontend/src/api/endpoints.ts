@@ -7,6 +7,10 @@ export const endpoints = {
   machineParameterPhotosHierarchy: '/v1/machine-parameter-photos/hierarchy',
   machineParameterPhotos: '/v1/machine-parameter-photos',
   machineParameterPhoto: (id: string) => `/v1/machine-parameter-photos/${id}`,
+  legacyMachineParameterPhotos: '/v1/machine-parameter-photos/legacy',
+  assignLegacyMachineParameterPhoto: (id: string) =>
+    `/v1/machine-parameter-photos/legacy/${id}/assign`,
+  deleteLegacyMachineParameterPhoto: (id: string) => `/v1/machine-parameter-photos/legacy/${id}`,
   morningRounds: '/morning-round',
   morningRoundV2: '/v2/morning-round',
   maintenance: '/maintenance',

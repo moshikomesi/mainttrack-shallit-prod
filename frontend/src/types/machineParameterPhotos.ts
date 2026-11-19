@@ -24,3 +24,14 @@ export type MachineParameterPhoto = {
   createdByUserId: string;
   createdAt: string;
 };
+
+export type LegacyParameterPhoto = {
+  id: string;
+  machineId: string;
+  machineName: string;
+  machineCode: string;
+  imageUrl: string;
+  sortOrder: number;
+  createdByUserId: string;
+  createdAt: string;
+};

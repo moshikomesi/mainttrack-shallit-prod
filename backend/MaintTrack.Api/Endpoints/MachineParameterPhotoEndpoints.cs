@@ -81,6 +81,86 @@ public static class MachineParameterPhotoEndpoints
             .WithName("UploadMachineParameterPhotos")
             .WithOpenApi();
 
+        app.MapGet("/api/v1/machine-parameter-photos/legacy", async (
+                IMachineParameterPhotoService photoService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var photos = await photoService.GetLegacyPhotosAsync(cancellationToken);
+                    return Results.Ok(photos);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return Results.Forbid();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+            })
+            .RequireRateLimiting("api")
+            .RequireAuthorization()
+            .WithName("GetLegacyMachineParameterPhotos")
+            .WithOpenApi();
+
+        app.MapPost("/api/v1/machine-parameter-photos/legacy/{id:guid}/assign", async (
+                Guid id,
+                LegacyParameterPhotoAssignmentRequest request,
+                IMachineParameterPhotoService photoService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var photo = await photoService.AssignLegacyPhotoAsync(id, request.ParameterId, cancellationToken);
+                    return Results.Ok(photo);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return Results.Forbid();
+                }
+                catch (KeyNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+            })
+            .RequireRateLimiting("api")
+            .RequireAuthorization()
+            .WithName("AssignLegacyMachineParameterPhoto")
+            .WithOpenApi();
+
+        app.MapDelete("/api/v1/machine-parameter-photos/legacy/{id:guid}", async (
+                Guid id,
+                IMachineParameterPhotoService photoService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    await photoService.DeleteLegacyPhotoAsync(id, cancellationToken);
+                    return Results.NoContent();
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return Results.Forbid();
+                }
+                catch (KeyNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+            })
+            .RequireRateLimiting("api")
+            .RequireAuthorization()
+            .WithName("DeleteLegacyMachineParameterPhoto")
+            .WithOpenApi();
+
         app.MapDelete("/api/v1/machine-parameter-photos/{id:guid}", async (
                 Guid id,
                 IMachineParameterPhotoService photoService,
@@ -141,3 +221,5 @@ public static class MachineParameterPhotoEndpoints
         return (parameterId, files);
     }
 }
+
+public sealed record LegacyParameterPhotoAssignmentRequest(Guid ParameterId);

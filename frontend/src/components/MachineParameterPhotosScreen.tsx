@@ -10,12 +10,16 @@ import {
   validateMaintenanceImageFile,
 } from '../services/uploadService';
 import {
+  assignLegacyMachineParameterPhoto,
+  deleteLegacyMachineParameterPhoto,
   deleteMachineParameterPhoto,
+  getLegacyMachineParameterPhotos,
   getMachineParameterPhotos,
   getMachineParameterPhotosHierarchy,
   uploadMachineParameterPhotos,
 } from '../services/machineParameterPhotosService';
 import type {
+  LegacyParameterPhoto,
   MachineParameterPhoto,
   ParameterPhotoGroup,
 } from '../types/machineParameterPhotos';
@@ -219,6 +223,9 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
 
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [viewerImageIndex, setViewerImageIndex] = useState<number | null>(null);
+  const [legacyPhotos, setLegacyPhotos] = useState<LegacyParameterPhoto[]>([]);
+  const [legacyTargets, setLegacyTargets] = useState<Record<string, string>>({});
+  const [legacyBusyId, setLegacyBusyId] = useState<string | null>(null);
 
   const parametersForGroup = useMemo(() => {
     if (!selectedGroupId) return [];
@@ -275,6 +282,18 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
     [photoSources.length]
   );
 
+  const loadLegacyPhotos = useCallback(async () => {
+    try {
+      const result = await getLegacyMachineParameterPhotos();
+      if (!mountedRef.current) return;
+      setLegacyPhotos(Array.isArray(result) ? result : []);
+    } catch (err) {
+      console.error(err);
+      if (!mountedRef.current) return;
+      setLegacyPhotos([]);
+    }
+  }, []);
+
   const loadHierarchy = useCallback(async () => {
     try {
       setLoadingHierarchy(true);
@@ -283,6 +302,11 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
       if (!mountedRef.current) return;
       setGroups(Array.isArray(result.groups) ? result.groups : []);
       setCanManage(result.canManage === true);
+      if (result.canManage === true) {
+        await loadLegacyPhotos();
+      } else if (mountedRef.current) {
+        setLegacyPhotos([]);
+      }
     } catch (err) {
       console.error(err);
       if (!mountedRef.current) return;
@@ -294,7 +318,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
         setLoadingHierarchy(false);
       }
     }
-  }, [t]);
+  }, [loadLegacyPhotos, t]);
 
   const loadPhotos = useCallback(
     async (parameterId: string, options?: { focusIndex?: number }) => {
@@ -396,6 +420,61 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [stepViewer, viewerImageIndex]);
+
+  const assignableParameters = useMemo(
+    () =>
+      groups.flatMap((group) =>
+        group.parameters.map((parameter) => ({
+          id: parameter.id,
+          label: `${t(group.nameKey)} — ${t(parameter.nameKey)}`,
+        }))
+      ),
+    [groups, t]
+  );
+
+  const handleLegacyAssign = async (photoId: string) => {
+    const parameterId = legacyTargets[photoId];
+    if (!canManage || !parameterId || legacyBusyId) return;
+    setLegacyBusyId(photoId);
+    try {
+      await assignLegacyMachineParameterPhoto(photoId, parameterId);
+      if (!mountedRef.current) return;
+      toast.success(t('machineParameterPhotos.legacyAssigned'));
+      await loadLegacyPhotos();
+      if (selectedParameterId === parameterId) {
+        await loadPhotos(parameterId);
+      }
+    } catch (err) {
+      console.error(err);
+      if (mountedRef.current) {
+        toast.error(t('machineParameterPhotos.legacyFailed'));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLegacyBusyId(null);
+      }
+    }
+  };
+
+  const handleLegacyDelete = async (photoId: string) => {
+    if (!canManage || legacyBusyId) return;
+    setLegacyBusyId(photoId);
+    try {
+      await deleteLegacyMachineParameterPhoto(photoId);
+      if (!mountedRef.current) return;
+      toast.success(t('machineParameterPhotos.deleteSuccess'));
+      await loadLegacyPhotos();
+    } catch (err) {
+      console.error(err);
+      if (mountedRef.current) {
+        toast.error(t('machineParameterPhotos.legacyFailed'));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLegacyBusyId(null);
+      }
+    }
+  };
 
   const handleGroupChange = (groupId: string) => {
     setSelectedGroupId(groupId);
@@ -565,6 +644,72 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
             </select>
           </div>
         </div>
+
+        {canManage && (
+          <section className="bg-white border border-neutral-200 rounded-lg p-4 space-y-3">
+            <h2 className="text-sm font-semibold text-neutral-800">
+              {t('machineParameterPhotos.legacyTitle')}
+            </h2>
+            {legacyPhotos.length === 0 ? (
+              <p className="text-sm text-neutral-600">{t('machineParameterPhotos.legacyEmpty')}</p>
+            ) : (
+              legacyPhotos.map((photo) => {
+                const src = safeImageSrc(photo.imageUrl);
+                const machineLabel = photo.machineName ? t(photo.machineName) : photo.machineId;
+                return (
+                  <article key={photo.id} className="border border-neutral-200 rounded-lg p-3 space-y-2">
+                    <p className="text-sm font-medium text-neutral-800">
+                      {machineLabel}
+                      {photo.machineCode ? ` (${photo.machineCode})` : ''}
+                    </p>
+                    {src && (
+                      <img
+                        src={src}
+                        alt={machineLabel}
+                        className="max-h-40 w-full rounded object-contain bg-neutral-100"
+                      />
+                    )}
+                    <label className="block text-xs font-medium text-neutral-600">
+                      {t('machineParameterPhotos.legacyAssign')}
+                      <select
+                        className="mt-1 w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
+                        value={legacyTargets[photo.id] ?? ''}
+                        onChange={(event) =>
+                          setLegacyTargets((current) => ({ ...current, [photo.id]: event.target.value }))
+                        }
+                      >
+                        <option value="">{t('machineParameterPhotos.selectParameter')}</option>
+                        {assignableParameters.map((parameter) => (
+                          <option key={parameter.id} value={parameter.id}>
+                            {parameter.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="px-3 py-2 bg-neutral-800 text-white text-sm rounded-lg disabled:opacity-50"
+                        disabled={!legacyTargets[photo.id] || legacyBusyId === photo.id}
+                        onClick={() => void handleLegacyAssign(photo.id)}
+                      >
+                        {t('machineParameterPhotos.legacyAssign')}
+                      </button>
+                      <button
+                        type="button"
+                        className="px-3 py-2 border border-red-300 text-red-700 text-sm rounded-lg disabled:opacity-50"
+                        disabled={legacyBusyId === photo.id}
+                        onClick={() => void handleLegacyDelete(photo.id)}
+                      >
+                        {t('machineParameterPhotos.deletePhoto')}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })
+            )}
+          </section>
+        )}
 
         {selectedParameterId && (
           <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-3">

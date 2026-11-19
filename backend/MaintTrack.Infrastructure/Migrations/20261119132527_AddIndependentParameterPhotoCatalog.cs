@@ -1,4 +1,5 @@
 ﻿using System;
+using MaintTrack.Infrastructure.MachineParameterPhotos;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -12,14 +13,14 @@ namespace MaintTrack.Infrastructure.Migrations
     /// Preservation:
     /// - machine_parameter_photos rows and image_url values are kept.
     /// - machine_id remains populated for photos that already had one.
-    /// - parameter_id is set only when machines.name equals the parameter
-    ///   name_key in the same tenant. Packing House parameters use the shared
-    ///   machine translation keys, which is that explicit mapping.
-    /// - Hopper, Computer of cooling system, Cooling System parameters, and
-    ///   the new bag-puller parameter do not match a machine name, so no
-    ///   existing photo is reassigned to them.
-    /// - Ambiguous hopper machines (machine.largeHopper, machine.smallHopper,
-    ///   machine.onion.hopper) are not mapped.
+    /// - parameter_id is set only when exactly one machine in the tenant has
+    ///   machines.name equal to the parameter name_key. Duplicate names and
+    ///   sort-order collisions stay unlinked.
+    /// - machine.largeHopper, machine.smallHopper, and machine.onion.hopper
+    ///   are never mapped. The standalone Hopper parameter is never an
+    ///   automatic link target.
+    /// - Down refuses to continue when any photo still has parameter_id set.
+    ///   It does not delete photo rows or image files.
     ///
     /// The seed is idempotent and runs for every tenant that exists when this
     /// migration is applied. A tenant created later receives the same catalog
@@ -206,41 +207,13 @@ namespace MaintTrack.Infrastructure.Migrations
                 );
                 """);
 
-            migrationBuilder.Sql(
-                """
-                UPDATE machine_parameter_photos
-                SET parameter_id = (
-                    SELECT parameter.id
-                    FROM parameter_photo_parameters AS parameter
-                    INNER JOIN machines AS machine
-                        ON machine.tenant_id = parameter.tenant_id
-                       AND machine.name = parameter.name_key
-                    WHERE machine.id = machine_parameter_photos.machine_id
-                      AND parameter.tenant_id = machine_parameter_photos.tenant_id
-                    LIMIT 1
-                )
-                WHERE parameter_id IS NULL
-                  AND machine_id IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1
-                    FROM parameter_photo_parameters AS parameter
-                    INNER JOIN machines AS machine
-                        ON machine.tenant_id = parameter.tenant_id
-                       AND machine.name = parameter.name_key
-                    WHERE machine.id = machine_parameter_photos.machine_id
-                      AND parameter.tenant_id = machine_parameter_photos.tenant_id
-                  );
-                """);
+            migrationBuilder.Sql(ParameterPhotoLegacyLinker.MigrationLinkSql);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql(
-                """
-                DELETE FROM machine_parameter_photos
-                WHERE machine_id IS NULL;
-                """);
+            migrationBuilder.Sql(ParameterPhotoRollbackGuard.Sql);
 
             migrationBuilder.DropForeignKey(
                 name: "FK_machine_parameter_photos_parameter_photo_parameters_paramet~",

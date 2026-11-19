@@ -204,6 +204,7 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         var anonymous = _factory.CreateClient();
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/v1/machine-parameter-photos/hierarchy")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/v1/machine-parameter-photos/legacy")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync($"/api/v1/machine-parameter-photos?parameterId={_hopperParameterId}")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsync("/api/v1/machine-parameter-photos", new MultipartFormDataContent())).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.DeleteAsync($"/api/v1/machine-parameter-photos/{_photoId}")).StatusCode);
@@ -422,6 +423,79 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         var legacy = await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().SingleAsync(item => item.Id == _photoId);
         Assert.Equal("/uploads/visible.jpg", legacy.ImageUrl);
         Assert.Equal(_sharedMachineId, legacy.MachineId);
+    }
+
+    [Fact]
+    public async Task LegacyRecovery_IsManagerAndTenantScoped_AndDoesNotAssignHopper()
+    {
+        var legacyPhotoId = Guid.NewGuid();
+        _dbContext.MachineParameterPhotos.Add(new MachineParameterPhoto
+        {
+            Id = legacyPhotoId,
+            TenantId = _tenantId,
+            MachineId = _sharedMachineId,
+            ImageUrl = "/uploads/first-hopper.jpg",
+            SortOrder = 4,
+            CreatedByUserId = _userId,
+            CreatedAt = DateTime.UtcNow
+        });
+        var otherMachineId = Guid.NewGuid();
+        _dbContext.Machines.Add(new Machine
+        {
+            Id = otherMachineId,
+            TenantId = _otherTenantId,
+            Name = "machine.largeHopper",
+            Code = "HX",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        var otherLegacyId = Guid.NewGuid();
+        _dbContext.MachineParameterPhotos.Add(new MachineParameterPhoto
+        {
+            Id = otherLegacyId,
+            TenantId = _otherTenantId,
+            MachineId = otherMachineId,
+            ImageUrl = "/uploads/other-legacy.jpg",
+            SortOrder = 1,
+            CreatedByUserId = Guid.NewGuid(),
+            CreatedAt = DateTime.UtcNow
+        });
+        await _dbContext.SaveChangesAsync();
+
+        var forbidden = await _client.GetAsync("/api/v1/machine-parameter-photos/legacy");
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+
+        await GrantManagerAsync();
+        var response = await _client.GetAsync("/api/v1/machine-parameter-photos/legacy");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var legacyPhotos = await response.Content.ReadFromJsonAsync<List<LegacyParameterPhotoDto>>();
+        var recovered = Assert.Single(legacyPhotos!);
+        Assert.Equal(legacyPhotoId, recovered.Id);
+        Assert.Equal(_sharedMachineId, recovered.MachineId);
+        Assert.Equal("machine.largeHopper", recovered.MachineName);
+        Assert.Equal("/uploads/first-hopper.jpg", recovered.ImageUrl);
+
+        var hopperPhotos = await _client.GetFromJsonAsync<List<MachineParameterPhotoDto>>(
+            $"/api/v1/machine-parameter-photos?parameterId={_hopperParameterId}");
+        Assert.DoesNotContain(hopperPhotos!, photo => photo.Id == legacyPhotoId);
+
+        var coolingParameterId = await _dbContext.ParameterPhotoParameters
+            .Where(parameter =>
+                parameter.TenantId == _tenantId &&
+                parameter.NameKey == ParameterPhotoCatalog.CoolingSystemComputerKey)
+            .Select(parameter => parameter.Id)
+            .SingleAsync();
+        var assign = await _client.PostAsJsonAsync(
+            $"/api/v1/machine-parameter-photos/legacy/{legacyPhotoId}/assign",
+            new { parameterId = coolingParameterId });
+        Assert.Equal(HttpStatusCode.OK, assign.StatusCode);
+
+        _dbContext.ChangeTracker.Clear();
+        var stored = await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().SingleAsync(photo => photo.Id == legacyPhotoId);
+        Assert.Equal(coolingParameterId, stored.ParameterId);
+        Assert.Equal(_sharedMachineId, stored.MachineId);
+        Assert.Equal("/uploads/first-hopper.jpg", stored.ImageUrl);
+        Assert.Equal(1, await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().CountAsync(photo => photo.ParameterId == _hopperParameterId));
     }
 
     private async Task GrantManagerAsync()

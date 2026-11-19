@@ -250,6 +250,34 @@ public sealed class MachineParameterPhotoSchemaTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Parameter_RejectsGroupFromAnotherTenant()
+    {
+        var otherGroup = CreateGroup(_otherTenantId, "parameter.other-group");
+        _dbContext.ParameterPhotoGroups.Add(otherGroup);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.ParameterPhotoParameters.Add(CreateParameter(_tenantId, otherGroup.Id, "parameter.cross-group"));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task MachineParameterPhoto_RejectsParameterFromAnotherTenant()
+    {
+        var otherGroup = CreateGroup(_otherTenantId, "parameter.other-group");
+        _dbContext.ParameterPhotoGroups.Add(otherGroup);
+        await _dbContext.SaveChangesAsync();
+        var otherParameter = CreateParameter(_otherTenantId, otherGroup.Id, "parameter.other-item");
+        _dbContext.ParameterPhotoParameters.Add(otherParameter);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, machineId: null, sortOrder: 1, otherParameter.Id));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+        Assert.Empty(await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
     public async Task MachineParameterPhoto_RestrictsParameterDelete()
     {
         var group = CreateGroup(_tenantId, "parameter.protected");

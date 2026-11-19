@@ -50,6 +50,21 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
     {
         var tenantId = EnsureTenantResolved();
         await ParameterPhotoCatalogSeeder.EnsureAsync(_dbContext, tenantId, ct);
+        var linkResult = await ParameterPhotoLegacyLinker.LinkAsync(_dbContext, tenantId, ct);
+        if (linkResult.AmbiguousMachineNames.Count > 0)
+        {
+            _logger.LogWarning(
+                "Skipped legacy Parameter Photos linking for tenant {TenantId} because these machine names are duplicated: {MachineNames}",
+                tenantId,
+                string.Join(", ", linkResult.AmbiguousMachineNames));
+        }
+
+        var excludedParameterIds = await _dbContext.ParameterPhotoParameterExclusions
+            .AsNoTracking()
+            .Where(exclusion => exclusion.TenantId == tenantId)
+            .Select(exclusion => exclusion.ParameterId)
+            .ToListAsync(ct);
+        var excluded = excludedParameterIds.ToHashSet();
 
         var groups = await _dbContext.ParameterPhotoGroups
             .AsNoTracking()
@@ -65,7 +80,10 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
                 group.NameKey,
                 group.SortOrder,
                 group.Parameters
-                    .Where(parameter => parameter.IsActive && parameter.TenantId == tenantId)
+                    .Where(parameter =>
+                        parameter.IsActive &&
+                        parameter.TenantId == tenantId &&
+                        !excluded.Contains(parameter.Id))
                     .OrderBy(parameter => parameter.SortOrder)
                     .ThenBy(parameter => parameter.NameKey)
                     .Select(parameter => new ParameterPhotoParameterDto(
@@ -95,6 +113,113 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
             .ToListAsync(ct);
 
         return photos.Select(MapPhoto).ToList();
+    }
+
+    public async Task<IReadOnlyList<LegacyParameterPhotoDto>> GetLegacyPhotosAsync(CancellationToken ct)
+    {
+        var tenantId = EnsureTenantResolved();
+        await EnsureCanManageAsync(ct);
+
+        var photos = await _dbContext.MachineParameterPhotos
+            .AsNoTracking()
+            .Where(photo =>
+                photo.TenantId == tenantId &&
+                photo.ParameterId == null &&
+                photo.MachineId != null)
+            .OrderBy(photo => photo.SortOrder)
+            .ThenBy(photo => photo.CreatedAt)
+            .ThenBy(photo => photo.Id)
+            .ToListAsync(ct);
+
+        var machineIds = photos.Select(photo => photo.MachineId!.Value).Distinct().ToList();
+        var machines = await _dbContext.Machines
+            .AsNoTracking()
+            .Where(machine => machine.TenantId == tenantId && machineIds.Contains(machine.Id))
+            .ToDictionaryAsync(machine => machine.Id, ct);
+
+        return photos
+            .Select(photo =>
+            {
+                machines.TryGetValue(photo.MachineId!.Value, out var machine);
+                return new LegacyParameterPhotoDto(
+                    photo.Id,
+                    photo.MachineId!.Value,
+                    machine?.Name ?? string.Empty,
+                    machine?.Code ?? string.Empty,
+                    photo.ImageUrl,
+                    photo.SortOrder,
+                    photo.CreatedByUserId,
+                    photo.CreatedAt);
+            })
+            .ToList();
+    }
+
+    public async Task<MachineParameterPhotoDto> AssignLegacyPhotoAsync(
+        Guid photoId,
+        Guid parameterId,
+        CancellationToken ct)
+    {
+        EnsureTenantResolved();
+        await EnsureCanManageAsync(ct);
+        await EnsureParameterAccessibleAsync(parameterId, ct);
+
+        var photo = await FindUnlinkedLegacyPhotoAsync(photoId, ct);
+        var machineId = photo.MachineId;
+        var imageUrl = photo.ImageUrl;
+        var originalSortOrder = photo.SortOrder;
+
+        var sortTaken = await _dbContext.MachineParameterPhotos
+            .AsNoTracking()
+            .AnyAsync(
+                item => item.ParameterId == parameterId && item.SortOrder == photo.SortOrder && item.Id != photo.Id,
+                ct);
+        if (sortTaken)
+        {
+            var maxSortOrder = await _dbContext.MachineParameterPhotos
+                .Where(item => item.ParameterId == parameterId)
+                .Select(item => (int?)item.SortOrder)
+                .MaxAsync(ct) ?? 0;
+            photo.SortOrder = maxSortOrder + 1;
+        }
+
+        photo.ParameterId = parameterId;
+        await _dbContext.SaveChangesAsync(ct);
+
+        if (photo.MachineId != machineId || photo.ImageUrl != imageUrl)
+        {
+            throw new InvalidOperationException("Legacy photo identity changed during assignment.");
+        }
+
+        if (!sortTaken && photo.SortOrder != originalSortOrder)
+        {
+            throw new InvalidOperationException("Legacy photo sort order changed during assignment.");
+        }
+
+        return MapPhoto(photo);
+    }
+
+    public async Task DeleteLegacyPhotoAsync(Guid photoId, CancellationToken ct)
+    {
+        EnsureTenantResolved();
+        await EnsureCanManageAsync(ct);
+
+        var photo = await FindUnlinkedLegacyPhotoAsync(photoId, ct);
+        var imageUrl = photo.ImageUrl;
+        _dbContext.MachineParameterPhotos.Remove(photo);
+        await _dbContext.SaveChangesAsync(ct);
+
+        try
+        {
+            await _fileStorageService.DeleteAsync(imageUrl, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Legacy parameter photo {PhotoId} was deleted, but image {ImageUrl} could not be removed from storage.",
+                photoId,
+                imageUrl);
+        }
     }
 
     public async Task<IReadOnlyList<MachineParameterPhotoDto>> UploadAsync(
@@ -245,6 +370,28 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
         {
             throw new InvalidOperationException("Parameter not found.");
         }
+
+        var excluded = await _dbContext.ParameterPhotoParameterExclusions
+            .AsNoTracking()
+            .AnyAsync(exclusion => exclusion.TenantId == tenantId && exclusion.ParameterId == parameterId, ct);
+        if (excluded)
+        {
+            throw new InvalidOperationException("Parameter not found.");
+        }
+    }
+
+    private async Task<MachineParameterPhoto> FindUnlinkedLegacyPhotoAsync(Guid photoId, CancellationToken ct)
+    {
+        var tenantId = EnsureTenantResolved();
+        var photo = await _dbContext.MachineParameterPhotos
+            .FirstOrDefaultAsync(item => item.Id == photoId && item.TenantId == tenantId, ct);
+
+        if (photo is null || photo.ParameterId is not null || photo.MachineId is null)
+        {
+            throw new KeyNotFoundException("Photo not found.");
+        }
+
+        return photo;
     }
 
     private async Task EnsureCanManageAsync(CancellationToken ct)

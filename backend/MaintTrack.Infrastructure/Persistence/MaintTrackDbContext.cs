@@ -52,6 +52,9 @@ public class MaintTrackDbContext : DbContext
 
     public DbSet<ParameterPhotoParameter> ParameterPhotoParameters => Set<ParameterPhotoParameter>();
 
+    public DbSet<ParameterPhotoParameterExclusion> ParameterPhotoParameterExclusions =>
+        Set<ParameterPhotoParameterExclusion>();
+
     public DbSet<MachineParameterPhoto> MachineParameterPhotos => Set<MachineParameterPhoto>();
 
     public DbSet<MachineParameterPhotoManager> MachineParameterPhotoManagers => Set<MachineParameterPhotoManager>();
@@ -535,6 +538,8 @@ public class MaintTrackDbContext : DbContext
         group.HasIndex(x => new { x.TenantId, x.NameKey })
             .IsUnique();
 
+        group.HasAlternateKey(x => new { x.Id, x.TenantId });
+
         group.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
 
         var parameter = modelBuilder.Entity<ParameterPhotoParameter>();
@@ -576,14 +581,51 @@ public class MaintTrackDbContext : DbContext
         parameter.HasIndex(x => new { x.TenantId, x.NameKey })
             .IsUnique();
 
+        parameter.HasAlternateKey(x => new { x.Id, x.TenantId });
+
         parameter.HasIndex(x => x.GroupId);
 
         parameter.HasOne(x => x.Group)
             .WithMany(x => x.Parameters)
-            .HasForeignKey(x => x.GroupId)
+            .HasForeignKey(x => new { x.GroupId, x.TenantId })
+            .HasPrincipalKey(x => new { x.Id, x.TenantId })
             .OnDelete(DeleteBehavior.Restrict);
 
         parameter.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+
+        var exclusion = modelBuilder.Entity<ParameterPhotoParameterExclusion>();
+
+        exclusion.ToTable("parameter_photo_parameter_exclusions");
+
+        exclusion.HasKey(x => x.Id);
+
+        exclusion.Property(x => x.Id)
+            .HasColumnName("id");
+
+        exclusion.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        exclusion.Property(x => x.ParameterId)
+            .HasColumnName("parameter_id")
+            .IsRequired();
+
+        exclusion.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        exclusion.Ignore(x => x.UpdatedAt);
+
+        exclusion.HasIndex(x => new { x.TenantId, x.ParameterId })
+            .IsUnique();
+
+        exclusion.HasOne(x => x.Parameter)
+            .WithMany()
+            .HasForeignKey(x => new { x.ParameterId, x.TenantId })
+            .HasPrincipalKey(x => new { x.Id, x.TenantId })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        exclusion.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
     private void ConfigureMachineParameterPhotos(ModelBuilder modelBuilder)
@@ -648,7 +690,9 @@ public class MaintTrackDbContext : DbContext
 
         photo.HasOne(x => x.Parameter)
             .WithMany()
-            .HasForeignKey(x => x.ParameterId)
+            .HasForeignKey(x => new { x.ParameterId, x.TenantId })
+            .HasPrincipalKey(x => new { x.Id, x.TenantId })
+            .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
 
         photo.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);

@@ -866,6 +866,8 @@ namespace MaintTrack.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"parameter_id\" IS NOT NULL");
 
+                    b.HasIndex("ParameterId", "TenantId");
+
                     b.HasIndex("TenantId", "MachineId");
 
                     b.HasIndex("TenantId", "ParameterId");
@@ -979,10 +981,41 @@ namespace MaintTrack.Infrastructure.Migrations
 
                     b.HasIndex("GroupId");
 
+                    b.HasIndex("GroupId", "TenantId");
+
                     b.HasIndex("TenantId", "NameKey")
                         .IsUnique();
 
                     b.ToTable("parameter_photo_parameters", (string)null);
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.MachineParameterPhotos.ParameterPhotoParameterExclusion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ParameterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parameter_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParameterId", "TenantId");
+
+                    b.HasIndex("TenantId", "ParameterId")
+                        .IsUnique();
+
+                    b.ToTable("parameter_photo_parameter_exclusions", (string)null);
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.Machines.Machine", b =>
@@ -1873,7 +1906,8 @@ namespace MaintTrack.Infrastructure.Migrations
 
                     b.HasOne("MaintTrack.Domain.MachineParameterPhotos.ParameterPhotoParameter", "Parameter")
                         .WithMany()
-                        .HasForeignKey("ParameterId")
+                        .HasForeignKey("ParameterId", "TenantId")
+                        .HasPrincipalKey("Id", "TenantId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Machine");
@@ -1896,11 +1930,24 @@ namespace MaintTrack.Infrastructure.Migrations
                 {
                     b.HasOne("MaintTrack.Domain.MachineParameterPhotos.ParameterPhotoGroup", "Group")
                         .WithMany("Parameters")
-                        .HasForeignKey("GroupId")
+                        .HasForeignKey("GroupId", "TenantId")
+                        .HasPrincipalKey("Id", "TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("MaintTrack.Domain.MachineParameterPhotos.ParameterPhotoParameterExclusion", b =>
+                {
+                    b.HasOne("MaintTrack.Domain.MachineParameterPhotos.ParameterPhotoParameter", "Parameter")
+                        .WithMany()
+                        .HasForeignKey("ParameterId", "TenantId")
+                        .HasPrincipalKey("Id", "TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Parameter");
                 });
 
             modelBuilder.Entity("MaintTrack.Domain.Maintenance.MaintenanceEntry", b =>

@@ -54,19 +54,28 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
     [Fact]
     public void Migration_SeedsEveryCatalogKeyAndUsesTheExplicitPhotoLink()
     {
-        var migrationPath = FindMigrationFile();
-        var migration = File.ReadAllText(migrationPath);
+        var migration = File.ReadAllText(FindMigrationFile());
+        var linker = File.ReadAllText(FindSourceFile("ParameterPhotoLegacyLinker.cs"));
+        var guard = File.ReadAllText(FindSourceFile("ParameterPhotoRollbackGuard.cs"));
 
         foreach (var nameKey in ParameterPhotoCatalog.AllNameKeys())
         {
             Assert.Contains($"'{nameKey}'", migration, StringComparison.Ordinal);
         }
 
-        Assert.Contains("machine.name = parameter.name_key", migration, StringComparison.Ordinal);
-        Assert.Contains("SET parameter_id =", migration, StringComparison.Ordinal);
-        Assert.DoesNotContain("DELETE FROM machine_parameter_photos\n                WHERE parameter_id", migration, StringComparison.Ordinal);
+        Assert.Contains("ParameterPhotoLegacyLinker.MigrationLinkSql", migration, StringComparison.Ordinal);
+        Assert.Contains("ParameterPhotoRollbackGuard.Sql", migration, StringComparison.Ordinal);
+        Assert.DoesNotContain("DELETE FROM machine_parameter_photos", migration, StringComparison.Ordinal);
         Assert.DoesNotContain("maintenance_tasks", migration, StringComparison.Ordinal);
         Assert.DoesNotContain("annual_plan_tasks", migration, StringComparison.Ordinal);
+        Assert.Contains("machine.name = parameter.name_key", linker, StringComparison.Ordinal);
+        Assert.Contains("COUNT(*)", linker, StringComparison.Ordinal);
+        Assert.Contains("'machine.largeHopper'", linker, StringComparison.Ordinal);
+        Assert.Contains("'machine.smallHopper'", linker, StringComparison.Ordinal);
+        Assert.Contains("'machine.onion.hopper'", linker, StringComparison.Ordinal);
+        Assert.Contains("'parameterPhoto.parameter.hopper'", linker, StringComparison.Ordinal);
+        Assert.Contains(ParameterPhotoRollbackGuard.Message, guard, StringComparison.Ordinal);
+        Assert.DoesNotContain("DELETE FROM", guard, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -80,6 +89,7 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
         var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.packing_house");
         var viscose = await _fx.SeedMachineAsync(_fx.TenantId, "machine.viscose", "V1", array.Id);
         var largeHopper = await _fx.SeedMachineAsync(_fx.TenantId, "machine.largeHopper", "H1", array.Id);
+        var smallHopper = await _fx.SeedMachineAsync(_fx.TenantId, "machine.smallHopper", "H2", array.Id);
         var onionArray = await _fx.SeedArrayAsync(_fx.OtherTenantId, "array.onion_system");
         var onionHopper = await _fx.SeedMachineAsync(_fx.TenantId, "machine.onion.hopper", "O1", onionArray.Id);
 
@@ -101,8 +111,15 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
             sortOrder: 2,
             machineId: onionHopper.Id,
             imageUrl: "/uploads/onion-hopper.jpg");
+        var unlinkedSmall = await _fx.SeedPhotoAsync(
+            _fx.TenantId,
+            parameterId: null,
+            sortOrder: 3,
+            machineId: smallHopper.Id,
+            imageUrl: "/uploads/small-hopper.jpg");
 
-        await _fx.DbContext.Database.ExecuteSqlRawAsync(ParameterPhotoLegacyLinker.LinkSql);
+        await ParameterPhotoLegacyLinker.LinkAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
+        await ParameterPhotoLegacyLinker.LinkAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
 
         var photos = await _fx.DbContext.MachineParameterPhotos.AsNoTracking().ToListAsync();
         var viscosePhoto = photos.Single(photo => photo.Id == linked.Id);
@@ -118,7 +135,19 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
 
         var onionPhoto = photos.Single(photo => photo.Id == unlinkedOnion.Id);
         Assert.Null(onionPhoto.ParameterId);
+        Assert.Equal(onionHopper.Id, onionPhoto.MachineId);
         Assert.Equal("/uploads/onion-hopper.jpg", onionPhoto.ImageUrl);
+
+        var smallPhoto = photos.Single(photo => photo.Id == unlinkedSmall.Id);
+        Assert.Null(smallPhoto.ParameterId);
+        Assert.Equal(smallHopper.Id, smallPhoto.MachineId);
+        Assert.Equal("/uploads/small-hopper.jpg", smallPhoto.ImageUrl);
+        Assert.Equal(4, photos.Count);
+
+        var hopperParameter = await _fx.DbContext.ParameterPhotoParameters.SingleAsync(parameter =>
+            parameter.TenantId == _fx.TenantId &&
+            parameter.NameKey == ParameterPhotoCatalog.HopperKey);
+        Assert.DoesNotContain(photos, photo => photo.ParameterId == hopperParameter.Id);
     }
 
     private static string FindMigrationFile()
@@ -142,5 +171,27 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
         }
 
         throw new InvalidOperationException("Parameter photo catalog migration file was not found.");
+    }
+
+    private static string FindSourceFile(string fileName)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(
+                directory.FullName,
+                "backend",
+                "MaintTrack.Infrastructure",
+                "MachineParameterPhotos",
+                fileName);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException($"{fileName} was not found.");
     }
 }

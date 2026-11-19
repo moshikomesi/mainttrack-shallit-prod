@@ -801,6 +801,31 @@ export const translations: Record<string, Record<Language, string>> = {
     he: 'עדיין לא הועלו תמונות פרמטר לפריט זה.',
     th: 'ยังไม่มีรูปพารามิเตอร์สำหรับรายการนี้',
   },
+  'machineParameterPhotos.legacyTitle': {
+    en: 'Unlinked legacy photos',
+    he: 'תמונות ישנות שלא שויכו',
+    th: 'รูปเก่าที่ยังไม่ได้เชื่อม',
+  },
+  'machineParameterPhotos.legacyEmpty': {
+    en: 'No unlinked legacy photos.',
+    he: 'אין תמונות ישנות שלא שויכו.',
+    th: 'ไม่มีรูปเก่าที่ยังไม่ได้เชื่อม',
+  },
+  'machineParameterPhotos.legacyAssign': {
+    en: 'Assign to parameter',
+    he: 'שייך לפרמטר',
+    th: 'กำหนดให้พารามิเตอร์',
+  },
+  'machineParameterPhotos.legacyAssigned': {
+    en: 'Photo assigned',
+    he: 'התמונה שויכה',
+    th: 'กำหนดรูปแล้ว',
+  },
+  'machineParameterPhotos.legacyFailed': {
+    en: 'Could not update the legacy photo',
+    he: 'לא ניתן לעדכן את התמונה הישנה',
+    th: 'ไม่สามารถอัปเดตรูปเก่าได้',
+  },
   'parameterPhoto.group.coolingSystem': {
     en: 'Cooling System',
     he: 'מערכת קירור',

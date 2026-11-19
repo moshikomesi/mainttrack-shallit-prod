@@ -1,6 +1,7 @@
 import { apiFetch } from '../api/apiClient';
 import { endpoints } from '../api/endpoints';
 import type {
+  LegacyParameterPhoto,
   MachineParameterPhoto,
   MachineParameterPhotosHierarchy,
 } from '../types/machineParameterPhotos';
@@ -34,6 +35,26 @@ export async function uploadMachineParameterPhotos(
 
 export async function deleteMachineParameterPhoto(photoId: string): Promise<void> {
   return apiFetch<void>(endpoints.machineParameterPhoto(photoId), {
+    method: 'DELETE',
+  });
+}
+
+export async function getLegacyMachineParameterPhotos(): Promise<LegacyParameterPhoto[]> {
+  return apiFetch<LegacyParameterPhoto[]>(endpoints.legacyMachineParameterPhotos);
+}
+
+export async function assignLegacyMachineParameterPhoto(
+  photoId: string,
+  parameterId: string
+): Promise<MachineParameterPhoto> {
+  return apiFetch<MachineParameterPhoto>(endpoints.assignLegacyMachineParameterPhoto(photoId), {
+    method: 'POST',
+    body: JSON.stringify({ parameterId }),
+  });
+}
+
+export async function deleteLegacyMachineParameterPhoto(photoId: string): Promise<void> {
+  return apiFetch<void>(endpoints.deleteLegacyMachineParameterPhoto(photoId), {
     method: 'DELETE',
   });
 }
