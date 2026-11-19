@@ -7,12 +7,12 @@ namespace MaintTrack.Application.MachineParameterPhotos;
 
 public interface IMachineParameterPhotoService
 {
-    Task<MachineParameterPhotoHierarchyDto> GetHierarchyAsync(CancellationToken ct);
+    Task<ParameterPhotoCatalogDto> GetCatalogAsync(CancellationToken ct);
 
-    Task<IReadOnlyList<MachineParameterPhotoDto>> GetByMachineIdAsync(Guid machineId, CancellationToken ct);
+    Task<IReadOnlyList<MachineParameterPhotoDto>> GetByParameterIdAsync(Guid parameterId, CancellationToken ct);
 
     Task<IReadOnlyList<MachineParameterPhotoDto>> UploadAsync(
-        Guid machineId,
+        Guid parameterId,
         IReadOnlyList<MachineParameterPhotoUploadFile> files,
         CancellationToken ct);
 

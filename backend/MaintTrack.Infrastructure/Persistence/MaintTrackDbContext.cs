@@ -48,6 +48,10 @@ public class MaintTrackDbContext : DbContext
 
     public DbSet<ArrayFeatureVisibility> ArrayFeatureVisibilities => Set<ArrayFeatureVisibility>();
 
+    public DbSet<ParameterPhotoGroup> ParameterPhotoGroups => Set<ParameterPhotoGroup>();
+
+    public DbSet<ParameterPhotoParameter> ParameterPhotoParameters => Set<ParameterPhotoParameter>();
+
     public DbSet<MachineParameterPhoto> MachineParameterPhotos => Set<MachineParameterPhoto>();
 
     public DbSet<MachineParameterPhotoManager> MachineParameterPhotoManagers => Set<MachineParameterPhotoManager>();
@@ -117,6 +121,7 @@ public class MaintTrackDbContext : DbContext
         ConfigureArrayFeatureVisibility(modelBuilder);
         ConfigureMachines(modelBuilder);
         ConfigureMachineComponents(modelBuilder);
+        ConfigureParameterPhotoCatalog(modelBuilder);
         ConfigureMachineParameterPhotos(modelBuilder);
         ConfigureMorningRoundReport(modelBuilder);
         ConfigureMorningRoundTemplateItem(modelBuilder);
@@ -493,11 +498,103 @@ public class MaintTrackDbContext : DbContext
         mapping.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
     }
 
+    private void ConfigureParameterPhotoCatalog(ModelBuilder modelBuilder)
+    {
+        var group = modelBuilder.Entity<ParameterPhotoGroup>();
+
+        group.ToTable("parameter_photo_groups");
+
+        group.HasKey(x => x.Id);
+
+        group.Property(x => x.Id)
+            .HasColumnName("id");
+
+        group.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        group.Property(x => x.NameKey)
+            .HasColumnName("name_key")
+            .HasMaxLength(200)
+            .IsRequired();
+
+        group.Property(x => x.SortOrder)
+            .HasColumnName("sort_order")
+            .IsRequired();
+
+        group.Property(x => x.IsActive)
+            .HasColumnName("is_active")
+            .IsRequired();
+
+        group.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        group.Ignore(x => x.UpdatedAt);
+
+        group.HasIndex(x => new { x.TenantId, x.NameKey })
+            .IsUnique();
+
+        group.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+
+        var parameter = modelBuilder.Entity<ParameterPhotoParameter>();
+
+        parameter.ToTable("parameter_photo_parameters");
+
+        parameter.HasKey(x => x.Id);
+
+        parameter.Property(x => x.Id)
+            .HasColumnName("id");
+
+        parameter.Property(x => x.TenantId)
+            .HasColumnName("tenant_id")
+            .IsRequired();
+
+        parameter.Property(x => x.GroupId)
+            .HasColumnName("group_id")
+            .IsRequired();
+
+        parameter.Property(x => x.NameKey)
+            .HasColumnName("name_key")
+            .HasMaxLength(200)
+            .IsRequired();
+
+        parameter.Property(x => x.SortOrder)
+            .HasColumnName("sort_order")
+            .IsRequired();
+
+        parameter.Property(x => x.IsActive)
+            .HasColumnName("is_active")
+            .IsRequired();
+
+        parameter.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .IsRequired();
+
+        parameter.Ignore(x => x.UpdatedAt);
+
+        parameter.HasIndex(x => new { x.TenantId, x.NameKey })
+            .IsUnique();
+
+        parameter.HasIndex(x => x.GroupId);
+
+        parameter.HasOne(x => x.Group)
+            .WithMany(x => x.Parameters)
+            .HasForeignKey(x => x.GroupId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        parameter.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);
+    }
+
     private void ConfigureMachineParameterPhotos(ModelBuilder modelBuilder)
     {
         var photo = modelBuilder.Entity<MachineParameterPhoto>();
 
-        photo.ToTable("machine_parameter_photos");
+        photo.ToTable(
+            "machine_parameter_photos",
+            table => table.HasCheckConstraint(
+                "ck_machine_parameter_photos_association",
+                "parameter_id IS NOT NULL OR machine_id IS NOT NULL"));
 
         photo.HasKey(x => x.Id);
 
@@ -509,8 +606,10 @@ public class MaintTrackDbContext : DbContext
             .IsRequired();
 
         photo.Property(x => x.MachineId)
-            .HasColumnName("machine_id")
-            .IsRequired();
+            .HasColumnName("machine_id");
+
+        photo.Property(x => x.ParameterId)
+            .HasColumnName("parameter_id");
 
         photo.Property(x => x.ImageUrl)
             .HasColumnName("image_url")
@@ -532,12 +631,24 @@ public class MaintTrackDbContext : DbContext
 
         photo.HasIndex(x => new { x.TenantId, x.MachineId });
 
+        photo.HasIndex(x => new { x.TenantId, x.ParameterId });
+
         photo.HasIndex(x => new { x.MachineId, x.SortOrder })
-            .IsUnique();
+            .IsUnique()
+            .HasFilter("\"machine_id\" IS NOT NULL");
+
+        photo.HasIndex(x => new { x.ParameterId, x.SortOrder })
+            .IsUnique()
+            .HasFilter("\"parameter_id\" IS NOT NULL");
 
         photo.HasOne(x => x.Machine)
             .WithMany()
             .HasForeignKey(x => x.MachineId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        photo.HasOne(x => x.Parameter)
+            .WithMany()
+            .HasForeignKey(x => x.ParameterId)
             .OnDelete(DeleteBehavior.Restrict);
 
         photo.HasQueryFilter(x => _tenantContext.TenantId == null || x.TenantId == _tenantContext.TenantId);

@@ -786,10 +786,56 @@ export const translations: Record<string, Record<Language, string>> = {
   'machineParameterPhotos.takePhoto': { en: 'Take Photo', he: 'צלם תמונה', th: 'ถ่ายภาพ' },
   'machineParameterPhotos.choosePhotos': { en: 'Choose Photos', he: 'בחר תמונות', th: 'เลือกรูปภาพ' },
   'machineParameterPhotos.deletePhoto': { en: 'Delete Photo', he: 'מחק תמונה', th: 'ลบรูปภาพ' },
+  'machineParameterPhotos.selectGroup': {
+    en: 'Select a group',
+    he: 'בחר קבוצה',
+    th: 'เลือกกลุ่ม',
+  },
+  'machineParameterPhotos.selectParameter': {
+    en: 'Select a parameter',
+    he: 'בחר פרמטר',
+    th: 'เลือกพารามิเตอร์',
+  },
   'machineParameterPhotos.empty': {
-    en: 'No parameter photos have been uploaded for this machine yet.',
-    he: 'עדיין לא הועלו תמונות פרמטר למכונה זו.',
-    th: 'ยังไม่มีรูปพารามิเตอร์สำหรับเครื่องจักรนี้',
+    en: 'No parameter photos have been uploaded for this parameter yet.',
+    he: 'עדיין לא הועלו תמונות פרמטר לפריט זה.',
+    th: 'ยังไม่มีรูปพารามิเตอร์สำหรับรายการนี้',
+  },
+  'parameterPhoto.group.coolingSystem': {
+    en: 'Cooling System',
+    he: 'מערכת קירור',
+    th: 'ระบบทำความเย็น',
+  },
+  'parameterPhoto.parameter.hopper': { en: 'Hopper', he: 'הופר', th: 'ฮอปเปอร์' },
+  'parameterPhoto.parameter.coolingSystemComputer': {
+    en: 'Computer of cooling system',
+    he: 'מחשב של מערכת הקירור',
+    th: 'คอมพิวเตอร์ของระบบทำความเย็น',
+  },
+  'parameterPhoto.parameter.compressorRooms': {
+    en: 'Compressor Rooms',
+    he: 'חדרי מדחסים',
+    th: 'ห้องคอมเพรสเซอร์',
+  },
+  'parameterPhoto.parameter.controlRoomAboveCoolingRooms': {
+    en: 'Control Room Above Cooling Rooms',
+    he: 'חדר בקרה מעל חדרי הקירור',
+    th: 'ห้องควบคุมเหนือห้องทำความเย็น',
+  },
+  'parameterPhoto.parameter.humidityControllers': {
+    en: 'Humidity Controllers',
+    he: 'בקרי לחות',
+    th: 'ตัวควบคุมความชื้น',
+  },
+  'parameterPhoto.parameter.ganShomronCooling': {
+    en: 'Gan Shomron Cooling',
+    he: 'קירור גן שומרון',
+    th: 'ระบบทำความเย็นגן שומרון',
+  },
+  'parameterPhoto.parameter.bagPullersUnderViscose': {
+    en: 'Bag pullers under the Viscose',
+    he: 'מושכני שקיות מתחת לויסכון',
+    th: 'ตัวดึงถุงใต้เครื่องวิสโคส',
   },
   'machineParameterPhotos.uploading': { en: 'Uploading…', he: 'מעלה…', th: 'กำลังอัปโหลด…' },
   'machineParameterPhotos.uploadSuccess': {

@@ -4,9 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MaintTrack.Application.Abstractions;
-using MaintTrack.Application.Hierarchy;
 using MaintTrack.Application.MachineParameterPhotos;
-using MaintTrack.Domain.Arrays;
 using MaintTrack.Domain.MachineParameterPhotos;
 using MaintTrack.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -31,7 +29,6 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
     private readonly MaintTrackDbContext _dbContext;
     private readonly ITenantContext _tenantContext;
     private readonly ICurrentUserContext _currentUserContext;
-    private readonly IHierarchyService _hierarchyService;
     private readonly IFileStorageService _fileStorageService;
     private readonly ILogger<MachineParameterPhotoService> _logger;
 
@@ -39,49 +36,59 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
         MaintTrackDbContext dbContext,
         ITenantContext tenantContext,
         ICurrentUserContext currentUserContext,
-        IHierarchyService hierarchyService,
         IFileStorageService fileStorageService,
         ILogger<MachineParameterPhotoService> logger)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
         _currentUserContext = currentUserContext ?? throw new ArgumentNullException(nameof(currentUserContext));
-        _hierarchyService = hierarchyService ?? throw new ArgumentNullException(nameof(hierarchyService));
         _fileStorageService = fileStorageService ?? throw new ArgumentNullException(nameof(fileStorageService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task<MachineParameterPhotoHierarchyDto> GetHierarchyAsync(CancellationToken ct)
+    public async Task<ParameterPhotoCatalogDto> GetCatalogAsync(CancellationToken ct)
     {
-        EnsureTenantResolved();
+        var tenantId = EnsureTenantResolved();
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_dbContext, tenantId, ct);
 
-        var hierarchy = await _hierarchyService.GetHierarchyAsync(ct);
-        var hiddenArrayIds = await GetHiddenArrayIdsAsync(ct);
-        var excludedMachineIds = await GetExcludedMachineIdsAsync(ct);
+        var groups = await _dbContext.ParameterPhotoGroups
+            .AsNoTracking()
+            .Include(group => group.Parameters)
+            .Where(group => group.IsActive && group.TenantId == tenantId)
+            .OrderBy(group => group.SortOrder)
+            .ThenBy(group => group.NameKey)
+            .ToListAsync(ct);
 
-        var arrays = hierarchy
-            .Where(group => group.ArrayId is { } arrayId && !hiddenArrayIds.Contains(arrayId))
-            .Select(group => group with
-            {
-                Machines = group.Machines
-                    .Where(machine => !excludedMachineIds.Contains(machine.Id))
-                    .ToList()
-            })
+        var visibleGroups = groups
+            .Select(group => new ParameterPhotoGroupDto(
+                group.Id,
+                group.NameKey,
+                group.SortOrder,
+                group.Parameters
+                    .Where(parameter => parameter.IsActive && parameter.TenantId == tenantId)
+                    .OrderBy(parameter => parameter.SortOrder)
+                    .ThenBy(parameter => parameter.NameKey)
+                    .Select(parameter => new ParameterPhotoParameterDto(
+                        parameter.Id,
+                        parameter.NameKey,
+                        parameter.SortOrder))
+                    .ToList()))
+            .Where(group => group.Parameters.Count > 0)
             .ToList();
 
-        return new MachineParameterPhotoHierarchyDto(arrays, await IsManagerAsync(ct));
+        return new ParameterPhotoCatalogDto(visibleGroups, await IsManagerAsync(ct));
     }
 
-    public async Task<IReadOnlyList<MachineParameterPhotoDto>> GetByMachineIdAsync(
-        Guid machineId,
+    public async Task<IReadOnlyList<MachineParameterPhotoDto>> GetByParameterIdAsync(
+        Guid parameterId,
         CancellationToken ct)
     {
         EnsureTenantResolved();
-        await EnsureMachineAccessibleAsync(machineId, ct);
+        await EnsureParameterAccessibleAsync(parameterId, ct);
 
         var photos = await _dbContext.MachineParameterPhotos
             .AsNoTracking()
-            .Where(photo => photo.MachineId == machineId)
+            .Where(photo => photo.ParameterId == parameterId)
             .OrderBy(photo => photo.SortOrder)
             .ThenBy(photo => photo.CreatedAt)
             .ThenBy(photo => photo.Id)
@@ -91,14 +98,14 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
     }
 
     public async Task<IReadOnlyList<MachineParameterPhotoDto>> UploadAsync(
-        Guid machineId,
+        Guid parameterId,
         IReadOnlyList<MachineParameterPhotoUploadFile> files,
         CancellationToken ct)
     {
         var tenantId = EnsureTenantResolved();
         await EnsureCanManageAsync(ct);
         ValidateFiles(files);
-        await EnsureMachineAccessibleAsync(machineId, ct);
+        await EnsureParameterAccessibleAsync(parameterId, ct);
 
         var uploadedUrls = new List<string>(files.Count);
         try
@@ -119,7 +126,7 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
                 uploadedUrls.Add(url);
             }
 
-            var persisted = await PersistUploadedPhotosAsync(machineId, uploadedUrls, ct);
+            var persisted = await PersistUploadedPhotosAsync(parameterId, uploadedUrls, ct);
             return persisted;
         }
         catch
@@ -136,14 +143,14 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
 
         var photo = await _dbContext.MachineParameterPhotos
             .FirstOrDefaultAsync(item => item.Id == id, ct);
-        if (photo is null)
+        if (photo is null || photo.ParameterId is not Guid parameterId)
         {
             throw new KeyNotFoundException("Photo not found.");
         }
 
         try
         {
-            await EnsureMachineAccessibleAsync(photo.MachineId, ct);
+            await EnsureParameterAccessibleAsync(parameterId, ct);
         }
         catch (InvalidOperationException)
         {
@@ -169,19 +176,19 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
     }
 
     private async Task<IReadOnlyList<MachineParameterPhotoDto>> PersistUploadedPhotosAsync(
-        Guid machineId,
+        Guid parameterId,
         IReadOnlyList<string> uploadedUrls,
         CancellationToken ct)
     {
         // SortOrder is max(existing)+1..n in one SaveChanges. There is no row lock.
-        // Concurrent uploads to the same machine can collide on unique
-        // (machine_id, sort_order). One retry re-reads the max and reassigns.
+        // Concurrent uploads to the same parameter can collide on unique
+        // (parameter_id, sort_order). One retry re-reads the max and reassigns.
         DbUpdateException? lastConflict = null;
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var nextSortOrder = await _dbContext.MachineParameterPhotos
-                .Where(photo => photo.MachineId == machineId)
+                .Where(photo => photo.ParameterId == parameterId)
                 .Select(photo => (int?)photo.SortOrder)
                 .MaxAsync(ct) ?? 0;
 
@@ -193,7 +200,7 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
                 {
                     Id = Guid.NewGuid(),
                     TenantId = _currentUserContext.TenantId,
-                    MachineId = machineId,
+                    ParameterId = parameterId,
                     ImageUrl = uploadedUrls[index],
                     SortOrder = nextSortOrder + index + 1,
                     CreatedByUserId = _currentUserContext.UserId,
@@ -221,71 +228,23 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
         throw lastConflict!;
     }
 
-    private async Task EnsureMachineAccessibleAsync(Guid machineId, CancellationToken ct)
+    private async Task EnsureParameterAccessibleAsync(Guid parameterId, CancellationToken ct)
     {
         var tenantId = EnsureTenantResolved();
 
-        var machine = await _dbContext.Machines
+        var parameter = await _dbContext.ParameterPhotoParameters
             .AsNoTracking()
+            .Include(item => item.Group)
             .FirstOrDefaultAsync(
-                item => item.Id == machineId && item.TenantId == tenantId && item.IsActive,
+                item => item.Id == parameterId && item.TenantId == tenantId && item.IsActive,
                 ct);
 
-        if (machine is null || machine.ArrayId is not { } arrayId)
+        if (parameter?.Group is null ||
+            parameter.Group.TenantId != tenantId ||
+            !parameter.Group.IsActive)
         {
-            throw new InvalidOperationException("Machine not found.");
+            throw new InvalidOperationException("Parameter not found.");
         }
-
-        var array = await _dbContext.Arrays
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                item => item.Id == arrayId && item.TenantId == tenantId && item.IsActive,
-                ct);
-
-        if (array is null)
-        {
-            throw new InvalidOperationException("Machine not found.");
-        }
-
-        var hiddenArrayIds = await GetHiddenArrayIdsAsync(ct);
-        if (hiddenArrayIds.Contains(array.Id))
-        {
-            throw new InvalidOperationException("Machine not found.");
-        }
-
-        var isExcluded = await _dbContext.MachineParameterMachineExclusions
-            .AsNoTracking()
-            .AnyAsync(row => row.TenantId == tenantId && row.MachineId == machineId, ct);
-        if (isExcluded)
-        {
-            throw new InvalidOperationException("Machine not found.");
-        }
-    }
-
-    private async Task<HashSet<Guid>> GetHiddenArrayIdsAsync(CancellationToken ct)
-    {
-        var hidden = await _dbContext.ArrayFeatureVisibilities
-            .AsNoTracking()
-            .Where(row =>
-                row.FeatureKey == ArrayFeatureVisibility.MachineParameterPhotosFeatureKey &&
-                !row.IsVisible)
-            .Select(row => row.ArrayId)
-            .ToListAsync(ct);
-
-        return hidden.ToHashSet();
-    }
-
-    private async Task<HashSet<Guid>> GetExcludedMachineIdsAsync(CancellationToken ct)
-    {
-        var tenantId = EnsureTenantResolved();
-
-        var excluded = await _dbContext.MachineParameterMachineExclusions
-            .AsNoTracking()
-            .Where(row => row.TenantId == tenantId)
-            .Select(row => row.MachineId)
-            .ToListAsync(ct);
-
-        return excluded.ToHashSet();
     }
 
     private async Task EnsureCanManageAsync(CancellationToken ct)
@@ -374,7 +333,7 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
     private static MachineParameterPhotoDto MapPhoto(MachineParameterPhoto photo) =>
         new(
             photo.Id,
-            photo.MachineId,
+            photo.ParameterId ?? throw new InvalidOperationException("Photo is not linked to a parameter."),
             photo.ImageUrl,
             photo.SortOrder,
             photo.CreatedByUserId,

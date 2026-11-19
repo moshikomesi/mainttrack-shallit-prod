@@ -1,15 +1,24 @@
-import type { HierarchyArray } from '../services/hierarchyService';
+export type ParameterPhotoParameter = {
+  id: string;
+  nameKey: string;
+  sortOrder: number;
+};
 
-export type { HierarchyArray, HierarchyMachine } from '../services/hierarchyService';
+export type ParameterPhotoGroup = {
+  id: string;
+  nameKey: string;
+  sortOrder: number;
+  parameters: ParameterPhotoParameter[];
+};
 
 export type MachineParameterPhotosHierarchy = {
-  arrays: HierarchyArray[];
+  groups: ParameterPhotoGroup[];
   canManage: boolean;
 };
 
 export type MachineParameterPhoto = {
   id: string;
-  machineId: string;
+  parameterId: string;
   imageUrl: string;
   sortOrder: number;
   createdByUserId: string;

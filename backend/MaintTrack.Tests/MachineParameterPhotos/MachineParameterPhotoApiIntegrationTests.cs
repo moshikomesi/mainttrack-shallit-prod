@@ -13,6 +13,7 @@ using MaintTrack.Domain.MachineParameterPhotos;
 using MaintTrack.Domain.Machines;
 using MaintTrack.Domain.Tenants;
 using MaintTrack.Domain.Users;
+using MaintTrack.Infrastructure.MachineParameterPhotos;
 using MaintTrack.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -33,15 +34,12 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
     private readonly Guid _tenantId = Guid.NewGuid();
     private readonly Guid _otherTenantId = Guid.NewGuid();
     private readonly Guid _userId = Guid.NewGuid();
-    private readonly Guid _visibleArrayId = Guid.NewGuid();
-    private readonly Guid _hiddenArrayId = Guid.NewGuid();
-    private readonly Guid _visibleMachineId = Guid.NewGuid();
-    private readonly Guid _hiddenMachineId = Guid.NewGuid();
-    private readonly Guid _inactiveMachineId = Guid.NewGuid();
-    private readonly Guid _unassignedMachineId = Guid.NewGuid();
-    private readonly Guid _otherMachineId = Guid.NewGuid();
+    private readonly Guid _sharedMachineId = Guid.NewGuid();
     private readonly Guid _photoId = Guid.NewGuid();
     private readonly Guid _otherPhotoId = Guid.NewGuid();
+    private Guid _hopperParameterId;
+    private Guid _inactiveParameterId;
+    private Guid _otherParameterId;
 
     public async Task InitializeAsync()
     {
@@ -112,105 +110,66 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
             CreatedAt = DateTime.UtcNow
         });
 
-        _dbContext.Arrays.AddRange(
-            new WorkGroup
-            {
-                Id = _visibleArrayId,
-                TenantId = _tenantId,
-                NameKey = "array.visible",
-                SortOrder = 1,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            },
-            new WorkGroup
-            {
-                Id = _hiddenArrayId,
-                TenantId = _tenantId,
-                NameKey = "array.hidden",
-                SortOrder = 2,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            },
-            new WorkGroup
-            {
-                Id = Guid.NewGuid(),
-                TenantId = _otherTenantId,
-                NameKey = "array.other",
-                SortOrder = 1,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            });
-
-        var otherArrayId = _dbContext.Arrays.Local.First(array => array.TenantId == _otherTenantId).Id;
-
-        _dbContext.Machines.AddRange(
-            new Machine
-            {
-                Id = _visibleMachineId,
-                TenantId = _tenantId,
-                Name = "machine.visible",
-                Code = "V1",
-                ArrayId = _visibleArrayId,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            },
-            new Machine
-            {
-                Id = _hiddenMachineId,
-                TenantId = _tenantId,
-                Name = "machine.hidden",
-                Code = "H1",
-                ArrayId = _hiddenArrayId,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            },
-            new Machine
-            {
-                Id = _inactiveMachineId,
-                TenantId = _tenantId,
-                Name = "machine.inactive",
-                Code = "I1",
-                ArrayId = _visibleArrayId,
-                IsActive = false,
-                CreatedAt = DateTime.UtcNow
-            },
-            new Machine
-            {
-                Id = _unassignedMachineId,
-                TenantId = _tenantId,
-                Name = "machine.unassigned",
-                Code = "U1",
-                ArrayId = null,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            },
-            new Machine
-            {
-                Id = _otherMachineId,
-                TenantId = _otherTenantId,
-                Name = "machine.other",
-                Code = "O1",
-                ArrayId = otherArrayId,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            });
-
-        _dbContext.ArrayFeatureVisibilities.Add(new ArrayFeatureVisibility
+        var sharedArrayId = Guid.NewGuid();
+        _dbContext.Arrays.Add(new WorkGroup
         {
-            Id = Guid.NewGuid(),
+            Id = sharedArrayId,
             TenantId = _tenantId,
-            ArrayId = _hiddenArrayId,
-            FeatureKey = ArrayFeatureVisibility.MachineParameterPhotosFeatureKey,
-            IsVisible = false,
+            NameKey = "array.washing_system",
+            SortOrder = 1,
+            IsActive = true,
+            IsMorningRoundEnabled = true,
             CreatedAt = DateTime.UtcNow
         });
+        _dbContext.Machines.Add(new Machine
+        {
+            Id = _sharedMachineId,
+            TenantId = _tenantId,
+            Name = "machine.largeHopper",
+            Code = "H1",
+            ArrayId = sharedArrayId,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        await _dbContext.SaveChangesAsync();
+
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_dbContext, _tenantId, CancellationToken.None);
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_dbContext, _otherTenantId, CancellationToken.None);
+
+        _hopperParameterId = await _dbContext.ParameterPhotoParameters
+            .IgnoreQueryFilters()
+            .Where(parameter => parameter.TenantId == _tenantId && parameter.NameKey == ParameterPhotoCatalog.HopperKey)
+            .Select(parameter => parameter.Id)
+            .SingleAsync();
+        var washingGroupId = await _dbContext.ParameterPhotoGroups
+            .IgnoreQueryFilters()
+            .Where(group => group.TenantId == _tenantId && group.NameKey == ParameterPhotoCatalog.WashingSystemGroupKey)
+            .Select(group => group.Id)
+            .SingleAsync();
+        _inactiveParameterId = Guid.NewGuid();
+        _dbContext.ParameterPhotoParameters.Add(new ParameterPhotoParameter
+        {
+            Id = _inactiveParameterId,
+            TenantId = _tenantId,
+            GroupId = washingGroupId,
+            NameKey = "parameterPhoto.parameter.inactive",
+            SortOrder = 99,
+            IsActive = false,
+            CreatedAt = DateTime.UtcNow
+        });
+        _otherParameterId = await _dbContext.ParameterPhotoParameters
+            .IgnoreQueryFilters()
+            .Where(parameter => parameter.TenantId == _otherTenantId && parameter.NameKey == ParameterPhotoCatalog.HopperKey)
+            .Select(parameter => parameter.Id)
+            .SingleAsync();
 
         _dbContext.MachineParameterPhotos.AddRange(
             new MachineParameterPhoto
             {
                 Id = _photoId,
                 TenantId = _tenantId,
-                MachineId = _visibleMachineId,
+                ParameterId = _hopperParameterId,
+                MachineId = _sharedMachineId,
                 ImageUrl = "/uploads/visible.jpg",
                 SortOrder = 1,
                 CreatedByUserId = _userId,
@@ -220,7 +179,7 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
             {
                 Id = _otherPhotoId,
                 TenantId = _otherTenantId,
-                MachineId = _otherMachineId,
+                ParameterId = _otherParameterId,
                 ImageUrl = "/uploads/other.jpg",
                 SortOrder = 1,
                 CreatedByUserId = Guid.NewGuid(),
@@ -245,25 +204,13 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         var anonymous = _factory.CreateClient();
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/v1/machine-parameter-photos/hierarchy")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync($"/api/v1/machine-parameter-photos?machineId={_visibleMachineId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync($"/api/v1/machine-parameter-photos?parameterId={_hopperParameterId}")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsync("/api/v1/machine-parameter-photos", new MultipartFormDataContent())).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.DeleteAsync($"/api/v1/machine-parameter-photos/{_photoId}")).StatusCode);
     }
 
     [Fact]
-    public async Task PublicHierarchy_StillIncludesHiddenAndUnassignedGroups()
-    {
-        var response = await _client.GetAsync("/api/v1/hierarchy");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var hierarchy = await response.Content.ReadFromJsonAsync<List<HierarchyArrayDto>>();
-        Assert.NotNull(hierarchy);
-        Assert.Contains(hierarchy, group => group.ArrayId == _hiddenArrayId);
-        Assert.Contains(hierarchy, group => group.ArrayId is null && group.NameKey == HierarchyDefaults.UnassignedNameKey);
-    }
-
-    [Fact]
-    public async Task FeatureHierarchy_FiltersHiddenAndUnassigned_AndReportsCanManage()
+    public async Task FeatureCatalog_ReturnsIndependentGroups_AndNotSharedMachines()
     {
         var response = await _client.GetAsync("/api/v1/machine-parameter-photos/hierarchy");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -271,52 +218,90 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.False(document.RootElement.GetProperty("canManage").GetBoolean());
 
-        var arrays = document.RootElement.GetProperty("arrays").EnumerateArray().ToList();
-        Assert.Single(arrays);
-        Assert.Equal(_visibleArrayId, arrays[0].GetProperty("arrayId").GetGuid());
-        Assert.Equal("array.visible", arrays[0].GetProperty("nameKey").GetString());
-        Assert.Equal(_visibleMachineId, arrays[0].GetProperty("machines")[0].GetProperty("id").GetGuid());
+        var groups = document.RootElement.GetProperty("groups").EnumerateArray().ToList();
+        Assert.Equal(
+            new[]
+            {
+                ParameterPhotoCatalog.WashingSystemGroupKey,
+                ParameterPhotoCatalog.CoolingSystemGroupKey,
+                ParameterPhotoCatalog.PackingHouseGroupKey
+            },
+            groups.Select(group => group.GetProperty("nameKey").GetString()).ToArray());
+
+        var washingParameters = groups[0].GetProperty("parameters").EnumerateArray()
+            .Select(parameter => parameter.GetProperty("nameKey").GetString())
+            .ToArray();
+        Assert.Equal(
+            new[] { ParameterPhotoCatalog.HopperKey, ParameterPhotoCatalog.CoolingSystemComputerKey },
+            washingParameters);
+        Assert.Contains(
+            groups[1].GetProperty("parameters").EnumerateArray(),
+            parameter => parameter.GetProperty("nameKey").GetString() == ParameterPhotoCatalog.CompressorRoomsKey);
+        Assert.Contains(
+            groups[2].GetProperty("parameters").EnumerateArray(),
+            parameter => parameter.GetProperty("nameKey").GetString() == ParameterPhotoCatalog.BagPullersUnderViscoseKey);
+        Assert.DoesNotContain(
+            groups.SelectMany(group => group.GetProperty("parameters").EnumerateArray()),
+            parameter => parameter.GetProperty("nameKey").GetString() == "machine.largeHopper");
+        Assert.DoesNotContain(
+            groups.SelectMany(group => group.GetProperty("parameters").EnumerateArray()),
+            parameter => parameter.GetProperty("id").GetGuid() == _sharedMachineId);
     }
 
     [Fact]
-    public async Task List_RequiresMachineId_AndReturnsCurrentMachinePhotos()
+    public async Task SharedHierarchyMachinesAndMorningRound_StillIncludeSharedMachines()
+    {
+        var shared = await _client.GetFromJsonAsync<List<HierarchyArrayDto>>("/api/v1/hierarchy");
+        Assert.NotNull(shared);
+        Assert.Contains(shared.SelectMany(group => group.Machines), machine => machine.Id == _sharedMachineId);
+
+        var machines = await _client.GetAsync("/api/v1/machines");
+        Assert.Equal(HttpStatusCode.OK, machines.StatusCode);
+        using (var document = JsonDocument.Parse(await machines.Content.ReadAsStringAsync()))
+        {
+            Assert.Contains(
+                document.RootElement.EnumerateArray(),
+                machine => machine.GetProperty("id").GetGuid() == _sharedMachineId);
+        }
+
+        var morningRound = await _client.GetAsync("/api/v2/morning-round");
+        Assert.Equal(HttpStatusCode.OK, morningRound.StatusCode);
+        using (var document = JsonDocument.Parse(await morningRound.Content.ReadAsStringAsync()))
+        {
+            Assert.Contains(
+                document.RootElement.EnumerateArray().SelectMany(array => array.GetProperty("machines").EnumerateArray()),
+                machine => machine.GetProperty("id").GetGuid() == _sharedMachineId);
+        }
+    }
+
+    [Fact]
+    public async Task List_RequiresParameterId_AndReturnsLinkedPhotos()
     {
         var missing = await _client.GetAsync("/api/v1/machine-parameter-photos");
         Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
 
-        var response = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_visibleMachineId}");
+        var response = await _client.GetAsync($"/api/v1/machine-parameter-photos?parameterId={_hopperParameterId}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var photos = await response.Content.ReadFromJsonAsync<List<MachineParameterPhotoDto>>();
         Assert.NotNull(photos);
-        Assert.Single(photos);
-        Assert.Equal(_photoId, photos[0].Id);
+        var photo = Assert.Single(photos);
+        Assert.Equal(_photoId, photo.Id);
+        Assert.Equal(_hopperParameterId, photo.ParameterId);
+        Assert.Equal("/uploads/visible.jpg", photo.ImageUrl);
     }
 
     [Fact]
-    public async Task List_DoesNotExposeHiddenOrOtherTenantMachines()
+    public async Task List_DoesNotExposeInactiveOrOtherTenantParameters()
     {
-        var hidden = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_hiddenMachineId}");
-        Assert.Equal(HttpStatusCode.BadRequest, hidden.StatusCode);
-
-        var other = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_otherMachineId}");
-        Assert.Equal(HttpStatusCode.BadRequest, other.StatusCode);
-    }
-
-    [Fact]
-    public async Task List_InaccessibleHiddenInactiveAndUnassignedMachines_Return400()
-    {
-        var unknown = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={Guid.NewGuid()}");
-        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
-        Assert.Contains("Machine not found.", await unknown.Content.ReadAsStringAsync(), StringComparison.Ordinal);
-
-        var hidden = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_hiddenMachineId}");
-        Assert.Equal(HttpStatusCode.BadRequest, hidden.StatusCode);
-
-        var inactive = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_inactiveMachineId}");
+        var inactive = await _client.GetAsync($"/api/v1/machine-parameter-photos?parameterId={_inactiveParameterId}");
         Assert.Equal(HttpStatusCode.BadRequest, inactive.StatusCode);
 
-        var unassigned = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_unassignedMachineId}");
-        Assert.Equal(HttpStatusCode.BadRequest, unassigned.StatusCode);
+        var other = await _client.GetAsync($"/api/v1/machine-parameter-photos?parameterId={_otherParameterId}");
+        Assert.Equal(HttpStatusCode.BadRequest, other.StatusCode);
+
+        var unknown = await _client.GetAsync($"/api/v1/machine-parameter-photos?parameterId={Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        Assert.Contains("Parameter not found.", await unknown.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -326,19 +311,19 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
 
         var unsupported = await _client.PostAsync(
             "/api/v1/machine-parameter-photos",
-            CreateFileForm(_visibleMachineId, "image/gif", "photo.gif", new byte[] { 1, 2, 3, 4 }));
+            CreateFileForm(_hopperParameterId, "image/gif", "photo.gif", new byte[] { 1, 2, 3, 4 }));
         Assert.Equal(HttpStatusCode.BadRequest, unsupported.StatusCode);
         Assert.Contains("Invalid file type.", await unsupported.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
         var empty = await _client.PostAsync(
             "/api/v1/machine-parameter-photos",
-            CreateFileForm(_visibleMachineId, "image/jpeg", "empty.jpg", Array.Empty<byte>()));
+            CreateFileForm(_hopperParameterId, "image/jpeg", "empty.jpg", Array.Empty<byte>()));
         Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
         Assert.Contains("Uploaded files cannot be empty.", await empty.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
         var tooMany = new MultipartFormDataContent
         {
-            { new StringContent(_visibleMachineId.ToString()), "machineId" }
+            { new StringContent(_hopperParameterId.ToString()), "parameterId" }
         };
         for (var i = 0; i < 11; i++)
         {
@@ -358,7 +343,7 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Upload_InaccessibleHiddenAndInactiveMachines_Return400()
+    public async Task Upload_InaccessibleParameters_Return400()
     {
         await GrantManagerAsync();
 
@@ -367,15 +352,15 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
             CreateJpegForm(Guid.NewGuid()));
         Assert.Equal(HttpStatusCode.BadRequest, inaccessible.StatusCode);
 
-        var hidden = await _client.PostAsync(
-            "/api/v1/machine-parameter-photos",
-            CreateJpegForm(_hiddenMachineId));
-        Assert.Equal(HttpStatusCode.BadRequest, hidden.StatusCode);
-
         var inactive = await _client.PostAsync(
             "/api/v1/machine-parameter-photos",
-            CreateJpegForm(_inactiveMachineId));
+            CreateJpegForm(_inactiveParameterId));
         Assert.Equal(HttpStatusCode.BadRequest, inactive.StatusCode);
+
+        var other = await _client.PostAsync(
+            "/api/v1/machine-parameter-photos",
+            CreateJpegForm(_otherParameterId));
+        Assert.Equal(HttpStatusCode.BadRequest, other.StatusCode);
 
         Assert.Empty(_storage.UploadedUrls);
     }
@@ -383,7 +368,7 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task PostAndDelete_WithoutManager_Return403()
     {
-        var post = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_visibleMachineId));
+        var post = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_hopperParameterId));
         Assert.Equal(HttpStatusCode.Forbidden, post.StatusCode);
 
         var delete = await _client.DeleteAsync($"/api/v1/machine-parameter-photos/{_photoId}");
@@ -402,27 +387,25 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         });
         await _dbContext.SaveChangesAsync();
 
-        var post = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_visibleMachineId));
+        var post = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_hopperParameterId));
         Assert.Equal(HttpStatusCode.Forbidden, post.StatusCode);
     }
 
     [Fact]
-    public async Task AssignedManager_CanUploadAndDelete()
+    public async Task AssignedManager_CanUploadAndDelete_AndCannotCrossTenants()
     {
         await GrantManagerAsync();
 
-        var upload = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_visibleMachineId));
+        var upload = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_hopperParameterId));
         Assert.Equal(HttpStatusCode.Created, upload.StatusCode);
         var created = await upload.Content.ReadFromJsonAsync<List<MachineParameterPhotoDto>>();
         Assert.NotNull(created);
         Assert.Single(created);
         Assert.Equal(2, created[0].SortOrder);
+        Assert.Equal(_hopperParameterId, created[0].ParameterId);
         Assert.Single(_storage.UploadedUrls);
 
-        var hiddenUpload = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_hiddenMachineId));
-        Assert.Equal(HttpStatusCode.BadRequest, hiddenUpload.StatusCode);
-
-        var otherUpload = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_otherMachineId));
+        var otherUpload = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_otherParameterId));
         Assert.Equal(HttpStatusCode.BadRequest, otherUpload.StatusCode);
 
         var delete = await _client.DeleteAsync($"/api/v1/machine-parameter-photos/{created[0].Id}");
@@ -434,103 +417,11 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
 
         var otherDelete = await _client.DeleteAsync($"/api/v1/machine-parameter-photos/{_otherPhotoId}");
         Assert.Equal(HttpStatusCode.NotFound, otherDelete.StatusCode);
-    }
 
-    [Fact]
-    public async Task ExcludedMachine_IsHiddenOnlyFromMachineParameters()
-    {
-        var morningArrayId = Guid.NewGuid();
-        var excludedMachineId = Guid.NewGuid();
-        _dbContext.Arrays.Add(new WorkGroup
-        {
-            Id = morningArrayId,
-            TenantId = _tenantId,
-            NameKey = "array.morning",
-            SortOrder = 3,
-            IsActive = true,
-            IsMorningRoundEnabled = true,
-            CreatedAt = DateTime.UtcNow
-        });
-        _dbContext.Machines.Add(new Machine
-        {
-            Id = excludedMachineId,
-            TenantId = _tenantId,
-            Name = "machine.excluded",
-            Code = "X1",
-            ArrayId = morningArrayId,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow
-        });
-        await _dbContext.SaveChangesAsync();
-        await ExcludeMachineAsync(excludedMachineId);
-
-        var feature = await _client.GetAsync("/api/v1/machine-parameter-photos/hierarchy");
-        Assert.Equal(HttpStatusCode.OK, feature.StatusCode);
-        using (var document = JsonDocument.Parse(await feature.Content.ReadAsStringAsync()))
-        {
-            var featureArrays = document.RootElement.GetProperty("arrays").EnumerateArray().ToList();
-            var morningGroup = Assert.Single(featureArrays, array => array.GetProperty("arrayId").GetGuid() == morningArrayId);
-            Assert.Empty(morningGroup.GetProperty("machines").EnumerateArray());
-            Assert.Contains(
-                featureArrays.SelectMany(array => array.GetProperty("machines").EnumerateArray()),
-                machine => machine.GetProperty("id").GetGuid() == _visibleMachineId);
-        }
-
-        var shared = await _client.GetFromJsonAsync<List<HierarchyArrayDto>>("/api/v1/hierarchy");
-        Assert.NotNull(shared);
-        Assert.Contains(shared.SelectMany(group => group.Machines), machine => machine.Id == excludedMachineId);
-
-        var machines = await _client.GetAsync("/api/v1/machines");
-        Assert.Equal(HttpStatusCode.OK, machines.StatusCode);
-        using (var document = JsonDocument.Parse(await machines.Content.ReadAsStringAsync()))
-        {
-            Assert.Contains(
-                document.RootElement.EnumerateArray(),
-                machine => machine.GetProperty("id").GetGuid() == excludedMachineId);
-        }
-
-        var morningRound = await _client.GetAsync("/api/v2/morning-round");
-        Assert.Equal(HttpStatusCode.OK, morningRound.StatusCode);
-        using (var document = JsonDocument.Parse(await morningRound.Content.ReadAsStringAsync()))
-        {
-            Assert.Contains(
-                document.RootElement.EnumerateArray().SelectMany(array => array.GetProperty("machines").EnumerateArray()),
-                machine => machine.GetProperty("id").GetGuid() == excludedMachineId);
-        }
-    }
-
-    [Fact]
-    public async Task ExcludedMachine_ListUploadAndDeleteAreRejected_PhotoIsPreserved()
-    {
-        await GrantManagerAsync();
-        await ExcludeMachineAsync(_visibleMachineId);
-
-        var list = await _client.GetAsync($"/api/v1/machine-parameter-photos?machineId={_visibleMachineId}");
-        Assert.Equal(HttpStatusCode.BadRequest, list.StatusCode);
-
-        var upload = await _client.PostAsync("/api/v1/machine-parameter-photos", CreateJpegForm(_visibleMachineId));
-        Assert.Equal(HttpStatusCode.BadRequest, upload.StatusCode);
-
-        var delete = await _client.DeleteAsync($"/api/v1/machine-parameter-photos/{_photoId}");
-        Assert.Equal(HttpStatusCode.NotFound, delete.StatusCode);
-
-        Assert.Empty(_storage.UploadedUrls);
-        Assert.Empty(_storage.DeletedUrls);
         _dbContext.ChangeTracker.Clear();
-        var photo = await _dbContext.MachineParameterPhotos.AsNoTracking().SingleAsync(item => item.Id == _photoId);
-        Assert.Equal("/uploads/visible.jpg", photo.ImageUrl);
-    }
-
-    private async Task ExcludeMachineAsync(Guid machineId)
-    {
-        _dbContext.MachineParameterMachineExclusions.Add(new MachineParameterMachineExclusion
-        {
-            Id = Guid.NewGuid(),
-            TenantId = _tenantId,
-            MachineId = machineId,
-            CreatedAt = DateTime.UtcNow
-        });
-        await _dbContext.SaveChangesAsync();
+        var legacy = await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().SingleAsync(item => item.Id == _photoId);
+        Assert.Equal("/uploads/visible.jpg", legacy.ImageUrl);
+        Assert.Equal(_sharedMachineId, legacy.MachineId);
     }
 
     private async Task GrantManagerAsync()
@@ -564,17 +455,17 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         _client.DefaultRequestHeaders.Add("Cookie", $"{AuthCookie.Name}={token}");
     }
 
-    private static MultipartFormDataContent CreateJpegForm(Guid machineId) =>
-        CreateFileForm(machineId, "image/jpeg", "photo.jpg", new byte[] { 1, 2, 3, 4 });
+    private static MultipartFormDataContent CreateJpegForm(Guid parameterId) =>
+        CreateFileForm(parameterId, "image/jpeg", "photo.jpg", new byte[] { 1, 2, 3, 4 });
 
     private static MultipartFormDataContent CreateFileForm(
-        Guid machineId,
+        Guid parameterId,
         string contentType,
         string fileName,
         byte[] bytes)
     {
         var content = new MultipartFormDataContent();
-        content.Add(new StringContent(machineId.ToString()), "machineId");
+        content.Add(new StringContent(parameterId.ToString()), "parameterId");
         var file = new ByteArrayContent(bytes);
         file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         content.Add(file, "files", fileName);

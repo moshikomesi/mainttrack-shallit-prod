@@ -4,7 +4,6 @@ using MaintTrack.Domain.Arrays;
 using MaintTrack.Domain.MachineParameterPhotos;
 using MaintTrack.Domain.Machines;
 using MaintTrack.Domain.Users;
-using MaintTrack.Infrastructure.Hierarchy;
 using MaintTrack.Infrastructure.MachineParameterPhotos;
 using MaintTrack.Infrastructure.Persistence;
 using MaintTrack.Infrastructure.Tenancy;
@@ -120,7 +119,6 @@ internal sealed class MachineParameterPhotoServiceFixture : IAsyncDisposable
             DbContext,
             TenantContext,
             CurrentUser,
-            new HierarchyService(DbContext, TenantContext),
             Storage,
             NullLogger<MachineParameterPhotoService>.Instance);
     }
@@ -243,16 +241,60 @@ internal sealed class MachineParameterPhotoServiceFixture : IAsyncDisposable
         await DbContext.SaveChangesAsync();
     }
 
+    public async Task<ParameterPhotoGroup> SeedGroupAsync(
+        Guid tenantId,
+        string nameKey,
+        int sortOrder = 1,
+        bool isActive = true)
+    {
+        var group = new ParameterPhotoGroup
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            NameKey = nameKey,
+            SortOrder = sortOrder,
+            IsActive = isActive,
+            CreatedAt = DateTime.UtcNow
+        };
+        DbContext.ParameterPhotoGroups.Add(group);
+        await DbContext.SaveChangesAsync();
+        return group;
+    }
+
+    public async Task<ParameterPhotoParameter> SeedParameterAsync(
+        Guid tenantId,
+        Guid groupId,
+        string nameKey,
+        int sortOrder = 1,
+        bool isActive = true)
+    {
+        var parameter = new ParameterPhotoParameter
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            GroupId = groupId,
+            NameKey = nameKey,
+            SortOrder = sortOrder,
+            IsActive = isActive,
+            CreatedAt = DateTime.UtcNow
+        };
+        DbContext.ParameterPhotoParameters.Add(parameter);
+        await DbContext.SaveChangesAsync();
+        return parameter;
+    }
+
     public async Task<MachineParameterPhoto> SeedPhotoAsync(
         Guid tenantId,
-        Guid machineId,
+        Guid? parameterId,
         int sortOrder,
+        Guid? machineId = null,
         string? imageUrl = null)
     {
         var photo = new MachineParameterPhoto
         {
             Id = Guid.NewGuid(),
             TenantId = tenantId,
+            ParameterId = parameterId,
             MachineId = machineId,
             ImageUrl = imageUrl ?? $"/uploads/{tenantId}/{Guid.NewGuid():N}.jpg",
             SortOrder = sortOrder,

@@ -10,18 +10,18 @@ export async function getMachineParameterPhotosHierarchy(): Promise<MachineParam
 }
 
 export async function getMachineParameterPhotos(
-  machineId: string
+  parameterId: string
 ): Promise<MachineParameterPhoto[]> {
-  const params = new URLSearchParams({ machineId });
+  const params = new URLSearchParams({ parameterId });
   return apiFetch<MachineParameterPhoto[]>(`${endpoints.machineParameterPhotos}?${params.toString()}`);
 }
 
 export async function uploadMachineParameterPhotos(
-  machineId: string,
+  parameterId: string,
   files: File[]
 ): Promise<MachineParameterPhoto[]> {
   const formData = new FormData();
-  formData.append('machineId', machineId);
+  formData.append('parameterId', parameterId);
   files.forEach((file) => {
     formData.append('files', file);
   });

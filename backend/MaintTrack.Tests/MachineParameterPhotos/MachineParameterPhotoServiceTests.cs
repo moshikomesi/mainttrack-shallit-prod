@@ -1,6 +1,6 @@
 using MaintTrack.Application.Hierarchy;
 using MaintTrack.Application.MachineParameterPhotos;
-using MaintTrack.Domain.Arrays;
+using MaintTrack.Domain.MachineParameterPhotos;
 using MaintTrack.Infrastructure.Hierarchy;
 using MaintTrack.Infrastructure.MachineParameterPhotos;
 using Microsoft.EntityFrameworkCore;
@@ -14,122 +14,162 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     public ValueTask DisposeAsync() => _fx.DisposeAsync();
 
     [Fact]
-    public async Task GetHierarchy_HidesHiddenArraysAndUnassigned()
+    public async Task GetCatalog_ReturnsIndependentGroupsInOrder_AndOmitsInactiveAndSharedMachines()
     {
-        var visible = await _fx.SeedArrayAsync(_fx.TenantId, "array.visible");
-        var hidden = await _fx.SeedArrayAsync(_fx.TenantId, "array.hidden");
-        await _fx.SeedMachineAsync(_fx.TenantId, "machine.visible", "V1", visible.Id);
-        await _fx.SeedMachineAsync(_fx.TenantId, "machine.hidden", "H1", hidden.Id);
-        await _fx.SeedMachineAsync(_fx.TenantId, "machine.unassigned", "U1", null);
-        await _fx.HideArrayAsync(_fx.TenantId, hidden.Id);
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
+        var washing = await _fx.DbContext.ParameterPhotoGroups
+            .SingleAsync(group => group.TenantId == _fx.TenantId && group.NameKey == ParameterPhotoCatalog.WashingSystemGroupKey);
+        await _fx.SeedParameterAsync(_fx.TenantId, washing.Id, "parameterPhoto.parameter.inactive", sortOrder: 9, isActive: false);
+        var inactiveGroup = await _fx.SeedGroupAsync(_fx.TenantId, "array.onion_system", sortOrder: 8, isActive: false);
+        await _fx.SeedParameterAsync(_fx.TenantId, inactiveGroup.Id, "machine.onion.hopper", sortOrder: 1);
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.washing_system");
+        await _fx.SeedMachineAsync(_fx.TenantId, "machine.largeHopper", "H1", array.Id);
+        await _fx.SeedMachineAsync(_fx.TenantId, "machine.elevatorToDestoner", "E1", array.Id);
 
-        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
+        var result = await _fx.Service.GetCatalogAsync(CancellationToken.None);
 
         Assert.False(result.CanManage);
-        Assert.Single(result.Arrays);
-        Assert.Equal(visible.Id, result.Arrays[0].ArrayId);
-        Assert.DoesNotContain(result.Arrays, group => group.ArrayId == hidden.Id);
-        Assert.DoesNotContain(result.Arrays, group => group.ArrayId is null);
-        Assert.DoesNotContain(result.Arrays, group => group.NameKey == HierarchyDefaults.UnassignedNameKey);
-        Assert.DoesNotContain(result.Arrays.SelectMany(group => group.Machines), machine => machine.Name == "machine.hidden");
+        Assert.Equal(
+            new[]
+            {
+                ParameterPhotoCatalog.WashingSystemGroupKey,
+                ParameterPhotoCatalog.CoolingSystemGroupKey,
+                ParameterPhotoCatalog.PackingHouseGroupKey
+            },
+            result.Groups.Select(group => group.NameKey).ToArray());
+
+        var washingGroup = result.Groups[0];
+        Assert.Equal(
+            new[] { ParameterPhotoCatalog.HopperKey, ParameterPhotoCatalog.CoolingSystemComputerKey },
+            washingGroup.Parameters.Select(parameter => parameter.NameKey).ToArray());
+
+        var coolingGroup = result.Groups[1];
+        Assert.Equal(
+            new[]
+            {
+                ParameterPhotoCatalog.CompressorRoomsKey,
+                ParameterPhotoCatalog.ControlRoomAboveCoolingRoomsKey,
+                ParameterPhotoCatalog.HumidityControllersKey,
+                ParameterPhotoCatalog.GanShomronCoolingKey
+            },
+            coolingGroup.Parameters.Select(parameter => parameter.NameKey).ToArray());
+
+        var packingGroup = result.Groups[2];
+        Assert.Equal(ParameterPhotoCatalog.PackingHouseMachineKeys[0], packingGroup.Parameters[0].NameKey);
+        Assert.Equal(
+            ParameterPhotoCatalog.BagPullersUnderViscoseKey,
+            packingGroup.Parameters[^1].NameKey);
+        Assert.Equal(
+            ParameterPhotoCatalog.PackingHouseMachineKeys.Length + 1,
+            packingGroup.Parameters.Count);
+
+        var returnedKeys = result.Groups
+            .SelectMany(group => group.Parameters.Select(parameter => parameter.NameKey).Prepend(group.NameKey))
+            .ToHashSet();
+        Assert.DoesNotContain("array.onion_system", result.Groups.Select(group => group.NameKey));
+        Assert.DoesNotContain("machine.largeHopper", returnedKeys);
+        Assert.DoesNotContain("machine.smallHopper", returnedKeys);
+        Assert.DoesNotContain("machine.elevatorToDestoner", returnedKeys);
+        Assert.DoesNotContain("machine.onion.hopper", returnedKeys);
+        Assert.DoesNotContain("machine.waterCooling.compressor1", returnedKeys);
+        Assert.DoesNotContain("machine.packing.stackers", returnedKeys);
+        Assert.DoesNotContain("machine.packing.visionSystem", returnedKeys);
+        Assert.DoesNotContain("parameterPhoto.parameter.inactive", returnedKeys);
     }
 
     [Fact]
-    public async Task GetHierarchy_OtherFeatureHideDoesNotHideArray()
-    {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.other-feature");
-        await _fx.SeedMachineAsync(_fx.TenantId, "machine.keep", "K1", array.Id);
-        await _fx.HideArrayAsync(_fx.TenantId, array.Id, featureKey: "some_other_feature");
-
-        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
-
-        Assert.Contains(result.Arrays, group => group.ArrayId == array.Id);
-    }
-
-    [Fact]
-    public async Task GetHierarchy_CanManage_UsesCurrentTenantAndUserAssignment()
+    public async Task GetCatalog_CanManage_UsesCurrentTenantAndUserAssignment()
     {
         await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
         await _fx.GrantManagerAsync(_fx.OtherTenantId, _fx.UserId);
 
-        var withoutGrant = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
+        var withoutGrant = await _fx.Service.GetCatalogAsync(CancellationToken.None);
         Assert.False(withoutGrant.CanManage);
 
         await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var withGrant = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
+        var withGrant = await _fx.Service.GetCatalogAsync(CancellationToken.None);
         Assert.True(withGrant.CanManage);
     }
 
     [Fact]
-    public async Task GetByMachineId_ReturnsOnlySelectedMachinePhotosInOrder()
+    public async Task GetByParameterId_ReturnsOnlySelectedParameterPhotosInOrder()
     {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machineA = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
-        var machineB = await _fx.SeedMachineAsync(_fx.TenantId, "machine.b", "B1", array.Id);
-        var later = await _fx.SeedPhotoAsync(_fx.TenantId, machineA.Id, 2);
-        var earlier = await _fx.SeedPhotoAsync(_fx.TenantId, machineA.Id, 1);
-        await _fx.SeedPhotoAsync(_fx.TenantId, machineB.Id, 1);
+        var parameterA = await SeedActiveParameterAsync("parameter.a");
+        var parameterB = await SeedActiveParameterAsync("parameter.b");
+        var later = await _fx.SeedPhotoAsync(_fx.TenantId, parameterA.Id, 2);
+        var earlier = await _fx.SeedPhotoAsync(_fx.TenantId, parameterA.Id, 1);
+        await _fx.SeedPhotoAsync(_fx.TenantId, parameterB.Id, 1);
 
-        var photos = await _fx.Service.GetByMachineIdAsync(machineA.Id, CancellationToken.None);
+        var photos = await _fx.Service.GetByParameterIdAsync(parameterA.Id, CancellationToken.None);
 
         Assert.Equal(2, photos.Count);
         Assert.Equal(new[] { earlier.Id, later.Id }, photos.Select(photo => photo.Id).ToArray());
-        Assert.All(photos, photo => Assert.Equal(machineA.Id, photo.MachineId));
+        Assert.All(photos, photo => Assert.Equal(parameterA.Id, photo.ParameterId));
     }
 
     [Fact]
-    public async Task GetByMachineId_DoesNotExposeOtherTenantPhotos()
+    public async Task GetByParameterId_ReturnsLegacyPhotoWithoutChangingStoredFile()
     {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.mine");
-        var otherArray = await _fx.SeedArrayAsync(_fx.OtherTenantId, "array.other");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.mine", "M1", array.Id);
-        var otherMachine = await _fx.SeedMachineAsync(_fx.OtherTenantId, "machine.other", "O1", otherArray.Id);
-        await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 1);
-        await _fx.SeedPhotoAsync(_fx.OtherTenantId, otherMachine.Id, 1);
+        var parameter = await SeedActiveParameterAsync("machine.sorter1");
+        var machineArray = await _fx.SeedArrayAsync(_fx.TenantId, "array.packing_house");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.sorter1", "S1", machineArray.Id);
+        var photo = await _fx.SeedPhotoAsync(
+            _fx.TenantId,
+            parameter.Id,
+            1,
+            machine.Id,
+            "/uploads/legacy-sorter.jpg");
 
-        var photos = await _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None);
+        var photos = await _fx.Service.GetByParameterIdAsync(parameter.Id, CancellationToken.None);
+
+        var returned = Assert.Single(photos);
+        Assert.Equal(photo.Id, returned.Id);
+        Assert.Equal("/uploads/legacy-sorter.jpg", returned.ImageUrl);
+        var stored = await _fx.DbContext.MachineParameterPhotos.AsNoTracking().SingleAsync();
+        Assert.Equal(machine.Id, stored.MachineId);
+        Assert.Equal("/uploads/legacy-sorter.jpg", stored.ImageUrl);
+    }
+
+    [Fact]
+    public async Task GetByParameterId_DoesNotExposeOtherTenantPhotos()
+    {
+        var parameter = await SeedActiveParameterAsync("parameter.mine");
+        var otherGroup = await _fx.SeedGroupAsync(_fx.OtherTenantId, "parameter.other-group");
+        var otherParameter = await _fx.SeedParameterAsync(_fx.OtherTenantId, otherGroup.Id, "parameter.other");
+        await _fx.SeedPhotoAsync(_fx.TenantId, parameter.Id, 1);
+        await _fx.SeedPhotoAsync(_fx.OtherTenantId, otherParameter.Id, 1);
+
+        var photos = await _fx.Service.GetByParameterIdAsync(parameter.Id, CancellationToken.None);
         Assert.Single(photos);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _fx.Service.GetByMachineIdAsync(otherMachine.Id, CancellationToken.None));
+            () => _fx.Service.GetByParameterIdAsync(otherParameter.Id, CancellationToken.None));
     }
 
     [Theory]
-    [InlineData(false, true, true)]
-    [InlineData(true, false, true)]
-    [InlineData(true, true, false)]
-    [InlineData(true, true, true)]
-    public async Task GetByMachineId_RejectsInactiveOrUnassignedOrHiddenMachine(
-        bool machineActive,
-        bool hasArray,
-        bool arrayActive)
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task GetByParameterId_RejectsInactiveParameterOrGroup(bool parameterActive, bool groupActive)
     {
-        Guid? arrayId = null;
-        if (hasArray)
-        {
-            var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.gate", isActive: arrayActive);
-            arrayId = array.Id;
-        }
-
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.gate", "G1", arrayId, machineActive);
-        if (hasArray && arrayActive && machineActive)
-        {
-            await _fx.HideArrayAsync(_fx.TenantId, arrayId!.Value);
-        }
+        var group = await _fx.SeedGroupAsync(_fx.TenantId, "parameter.group", isActive: groupActive);
+        var parameter = await _fx.SeedParameterAsync(
+            _fx.TenantId,
+            group.Id,
+            "parameter.item",
+            isActive: parameterActive);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None));
+            () => _fx.Service.GetByParameterIdAsync(parameter.Id, CancellationToken.None));
     }
 
     [Fact]
     public async Task Upload_RequiresManagerAssignment()
     {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
+        var parameter = await SeedActiveParameterAsync("parameter.a");
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             _fx.Service.UploadAsync(
-                machine.Id,
+                parameter.Id,
                 new[] { MachineParameterPhotoServiceFixture.CreateUpload() },
                 CancellationToken.None));
     }
@@ -139,12 +179,11 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     {
         await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "local-user");
         await _fx.GrantManagerAsync(_fx.OtherTenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
+        var parameter = await SeedActiveParameterAsync("parameter.a");
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             _fx.Service.UploadAsync(
-                machine.Id,
+                parameter.Id,
                 new[] { MachineParameterPhotoServiceFixture.CreateUpload() },
                 CancellationToken.None));
     }
@@ -153,36 +192,35 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     [InlineData("image/jpeg", "photo.jpg")]
     [InlineData("image/png", "photo.png")]
     [InlineData("image/webp", "photo.webp")]
-    public async Task Upload_AcceptsAllowedImageTypes(string contentType, string fileName)
+    public async Task Upload_AcceptsAllowedImageTypesWithoutAMachine(string contentType, string fileName)
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
+        await GrantCurrentUserAsync();
+        var parameter = await SeedActiveParameterAsync("parameter.a");
 
         var photos = await _fx.Service.UploadAsync(
-            machine.Id,
+            parameter.Id,
             new[] { MachineParameterPhotoServiceFixture.CreateUpload(contentType, fileName) },
             CancellationToken.None);
 
         Assert.Single(photos);
         Assert.Equal(1, photos[0].SortOrder);
-        Assert.Equal(machine.Id, photos[0].MachineId);
+        Assert.Equal(parameter.Id, photos[0].ParameterId);
         Assert.Equal(_fx.UserId, photos[0].CreatedByUserId);
         Assert.Single(_fx.Storage.UploadedUrls);
+        var stored = await _fx.DbContext.MachineParameterPhotos.AsNoTracking().SingleAsync();
+        Assert.Null(stored.MachineId);
+        Assert.Equal(parameter.Id, stored.ParameterId);
     }
 
     [Fact]
     public async Task Upload_AssignsDeterministicSequentialSortOrder()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
-        await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 3);
+        await GrantCurrentUserAsync();
+        var parameter = await SeedActiveParameterAsync("parameter.a");
+        await _fx.SeedPhotoAsync(_fx.TenantId, parameter.Id, 3);
 
         var photos = await _fx.Service.UploadAsync(
-            machine.Id,
+            parameter.Id,
             new[]
             {
                 MachineParameterPhotoServiceFixture.CreateUpload(fileName: "a.jpg"),
@@ -197,29 +235,27 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     [Fact]
     public async Task Upload_RejectsEmptyUnsupportedLargeAndTooManyFiles()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
+        await GrantCurrentUserAsync();
+        var parameter = await SeedActiveParameterAsync("parameter.a");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _fx.Service.UploadAsync(machine.Id, Array.Empty<MachineParameterPhotoUploadFile>(), CancellationToken.None));
+            _fx.Service.UploadAsync(parameter.Id, Array.Empty<MachineParameterPhotoUploadFile>(), CancellationToken.None));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _fx.Service.UploadAsync(
-                machine.Id,
+                parameter.Id,
                 new[] { MachineParameterPhotoServiceFixture.CreateUpload(bytes: 0) },
                 CancellationToken.None));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _fx.Service.UploadAsync(
-                machine.Id,
+                parameter.Id,
                 new[] { MachineParameterPhotoServiceFixture.CreateUpload("image/gif", "x.gif") },
                 CancellationToken.None));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _fx.Service.UploadAsync(
-                machine.Id,
+                parameter.Id,
                 new[] { MachineParameterPhotoServiceFixture.CreateUpload(bytes: (int)MachineParameterPhotoService.MaximumFileSizeBytes + 1) },
                 CancellationToken.None));
 
@@ -227,55 +263,49 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
             .Select(_ => MachineParameterPhotoServiceFixture.CreateUpload())
             .ToList();
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _fx.Service.UploadAsync(machine.Id, tooMany, CancellationToken.None));
+            _fx.Service.UploadAsync(parameter.Id, tooMany, CancellationToken.None));
     }
 
     [Fact]
-    public async Task Upload_RejectsHiddenInactiveAndCrossTenantMachines()
+    public async Task Upload_RejectsInactiveUnknownAndCrossTenantParameters()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-
-        var hiddenArray = await _fx.SeedArrayAsync(_fx.TenantId, "array.hidden");
-        var hiddenMachine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.hidden", "H1", hiddenArray.Id);
-        await _fx.HideArrayAsync(_fx.TenantId, hiddenArray.Id);
-
-        var inactiveArray = await _fx.SeedArrayAsync(_fx.TenantId, "array.inactive", isActive: false);
-        var inactiveArrayMachine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.inactive-array", "IA1", inactiveArray.Id);
-
-        var visibleArray = await _fx.SeedArrayAsync(_fx.TenantId, "array.visible");
-        var inactiveMachine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.inactive", "I1", visibleArray.Id, isActive: false);
-        var unassigned = await _fx.SeedMachineAsync(_fx.TenantId, "machine.none", "N1", null);
-
-        var otherArray = await _fx.SeedArrayAsync(_fx.OtherTenantId, "array.other");
-        var otherMachine = await _fx.SeedMachineAsync(_fx.OtherTenantId, "machine.other", "O1", otherArray.Id);
+        await GrantCurrentUserAsync();
+        var inactiveGroup = await _fx.SeedGroupAsync(_fx.TenantId, "parameter.inactive-group", isActive: false);
+        var inactiveGroupParameter = await _fx.SeedParameterAsync(
+            _fx.TenantId,
+            inactiveGroup.Id,
+            "parameter.inactive-group-item");
+        var visibleGroup = await _fx.SeedGroupAsync(_fx.TenantId, "parameter.visible");
+        var inactiveParameter = await _fx.SeedParameterAsync(
+            _fx.TenantId,
+            visibleGroup.Id,
+            "parameter.inactive",
+            isActive: false);
+        var otherGroup = await _fx.SeedGroupAsync(_fx.OtherTenantId, "parameter.other");
+        var otherParameter = await _fx.SeedParameterAsync(_fx.OtherTenantId, otherGroup.Id, "parameter.other-item");
 
         var file = new[] { MachineParameterPhotoServiceFixture.CreateUpload() };
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _fx.Service.UploadAsync(hiddenMachine.Id, file, CancellationToken.None));
+            _fx.Service.UploadAsync(inactiveGroupParameter.Id, file, CancellationToken.None));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _fx.Service.UploadAsync(inactiveArrayMachine.Id, file, CancellationToken.None));
+            _fx.Service.UploadAsync(inactiveParameter.Id, file, CancellationToken.None));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _fx.Service.UploadAsync(inactiveMachine.Id, file, CancellationToken.None));
+            _fx.Service.UploadAsync(otherParameter.Id, file, CancellationToken.None));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _fx.Service.UploadAsync(unassigned.Id, file, CancellationToken.None));
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _fx.Service.UploadAsync(otherMachine.Id, file, CancellationToken.None));
+            _fx.Service.UploadAsync(Guid.NewGuid(), file, CancellationToken.None));
         Assert.Empty(_fx.Storage.UploadedUrls);
     }
 
     [Fact]
     public async Task Upload_PartialStorageFailureCleansUpUploadedFiles()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
+        await GrantCurrentUserAsync();
+        var parameter = await SeedActiveParameterAsync("parameter.a");
         _fx.Storage.FailOnUploadNumber = 2;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _fx.Service.UploadAsync(
-                machine.Id,
+                parameter.Id,
                 new[]
                 {
                     MachineParameterPhotoServiceFixture.CreateUpload(fileName: "one.jpg"),
@@ -291,15 +321,13 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     [Fact]
     public async Task Upload_DbFailureAfterUploadCleansUpFiles()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
+        await GrantCurrentUserAsync();
+        var parameter = await SeedActiveParameterAsync("parameter.a");
         _fx.SaveInterceptor.FailNext = true;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _fx.Service.UploadAsync(
-                machine.Id,
+                parameter.Id,
                 new[] { MachineParameterPhotoServiceFixture.CreateUpload() },
                 CancellationToken.None));
 
@@ -311,9 +339,8 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     [Fact]
     public async Task Delete_RequiresManagerAndCurrentTenant()
     {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
-        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 1);
+        var parameter = await SeedActiveParameterAsync("parameter.a");
+        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, parameter.Id, 1);
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
             () => _fx.Service.DeleteAsync(photo.Id, CancellationToken.None));
@@ -327,11 +354,9 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     [Fact]
     public async Task Delete_ManagerDeletesPhotoAndAttemptsStorageCleanup()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
-        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 1, "/uploads/to-delete.jpg");
+        await GrantCurrentUserAsync();
+        var parameter = await SeedActiveParameterAsync("parameter.a");
+        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, parameter.Id, 1, imageUrl: "/uploads/to-delete.jpg");
 
         await _fx.Service.DeleteAsync(photo.Id, CancellationToken.None);
 
@@ -342,8 +367,7 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     [Fact]
     public async Task Delete_MissingPhotoReturnsNotFound()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
+        await GrantCurrentUserAsync();
 
         await Assert.ThrowsAsync<KeyNotFoundException>(
             () => _fx.Service.DeleteAsync(Guid.NewGuid(), CancellationToken.None));
@@ -352,11 +376,10 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     [Fact]
     public async Task Delete_OtherTenantPhotoIsNotFound()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var otherArray = await _fx.SeedArrayAsync(_fx.OtherTenantId, "array.other");
-        var otherMachine = await _fx.SeedMachineAsync(_fx.OtherTenantId, "machine.other", "O1", otherArray.Id);
-        var otherPhoto = await _fx.SeedPhotoAsync(_fx.OtherTenantId, otherMachine.Id, 1);
+        await GrantCurrentUserAsync();
+        var otherGroup = await _fx.SeedGroupAsync(_fx.OtherTenantId, "parameter.other");
+        var otherParameter = await _fx.SeedParameterAsync(_fx.OtherTenantId, otherGroup.Id, "parameter.other-item");
+        var otherPhoto = await _fx.SeedPhotoAsync(_fx.OtherTenantId, otherParameter.Id, 1);
 
         await Assert.ThrowsAsync<KeyNotFoundException>(
             () => _fx.Service.DeleteAsync(otherPhoto.Id, CancellationToken.None));
@@ -365,11 +388,9 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     [Fact]
     public async Task Delete_StorageFailureAfterDbDeleteStillSucceeds()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
-        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 1);
+        await GrantCurrentUserAsync();
+        var parameter = await SeedActiveParameterAsync("parameter.a");
+        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, parameter.Id, 1);
         _fx.Storage.FailOnDelete = true;
 
         await _fx.Service.DeleteAsync(photo.Id, CancellationToken.None);
@@ -378,135 +399,72 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Delete_HiddenArrayPhotoIsNotExposed()
+    public async Task Delete_InactiveParameterPhotoIsNotExposed_AndFileIsPreserved()
     {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.hidden");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.hidden", "H1", array.Id);
-        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 1);
-        await _fx.HideArrayAsync(_fx.TenantId, array.Id);
+        await GrantCurrentUserAsync();
+        var group = await _fx.SeedGroupAsync(_fx.TenantId, "parameter.hidden");
+        var parameter = await _fx.SeedParameterAsync(_fx.TenantId, group.Id, "parameter.hidden-item", isActive: false);
+        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, parameter.Id, 1, imageUrl: "/uploads/kept.jpg");
 
         await Assert.ThrowsAsync<KeyNotFoundException>(
             () => _fx.Service.DeleteAsync(photo.Id, CancellationToken.None));
-        Assert.Single(await _fx.DbContext.MachineParameterPhotos.ToListAsync());
-    }
-
-    [Fact]
-    public async Task GetHierarchy_MachineWithoutExclusionRowIsVisible()
-    {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
-
-        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
-
-        Assert.Contains(result.Arrays.SelectMany(group => group.Machines), item => item.Id == machine.Id);
-    }
-
-    [Fact]
-    public async Task GetHierarchy_ExcludedMachineIsHidden_ArrayAndSiblingsRemain()
-    {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var excluded = await _fx.SeedMachineAsync(_fx.TenantId, "machine.excluded", "E1", array.Id);
-        var kept = await _fx.SeedMachineAsync(_fx.TenantId, "machine.kept", "K1", array.Id);
-        await _fx.ExcludeMachineAsync(_fx.TenantId, excluded.Id);
-
-        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
-
-        var group = Assert.Single(result.Arrays);
-        Assert.Equal(array.Id, group.ArrayId);
-        Assert.Equal(new[] { kept.Id }, group.Machines.Select(item => item.Id).ToArray());
-    }
-
-    [Fact]
-    public async Task GetHierarchy_ArrayHideStillAppliesAlongsideMachineExclusions()
-    {
-        var visible = await _fx.SeedArrayAsync(_fx.TenantId, "array.visible");
-        var hidden = await _fx.SeedArrayAsync(_fx.TenantId, "array.hidden");
-        var excluded = await _fx.SeedMachineAsync(_fx.TenantId, "machine.excluded", "E1", visible.Id);
-        var kept = await _fx.SeedMachineAsync(_fx.TenantId, "machine.kept", "K1", visible.Id);
-        await _fx.SeedMachineAsync(_fx.TenantId, "machine.hidden-array", "H1", hidden.Id);
-        await _fx.HideArrayAsync(_fx.TenantId, hidden.Id);
-        await _fx.ExcludeMachineAsync(_fx.TenantId, excluded.Id);
-
-        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
-
-        var group = Assert.Single(result.Arrays);
-        Assert.Equal(visible.Id, group.ArrayId);
-        Assert.Equal(new[] { kept.Id }, group.Machines.Select(item => item.Id).ToArray());
-    }
-
-    [Fact]
-    public async Task GetHierarchy_OtherTenantExclusionDoesNotHideMachine()
-    {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.a", "A1", array.Id);
-        await _fx.ExcludeMachineAsync(_fx.OtherTenantId, machine.Id);
-
-        var result = await _fx.Service.GetHierarchyAsync(CancellationToken.None);
-        Assert.Contains(result.Arrays.SelectMany(group => group.Machines), item => item.Id == machine.Id);
-
-        var photos = await _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None);
-        Assert.Empty(photos);
-    }
-
-    [Fact]
-    public async Task ExcludedMachine_CannotListUploadOrDelete_AndPhotosAndFilesArePreserved()
-    {
-        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
-        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.excluded", "E1", array.Id);
-        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 1, "/uploads/excluded.jpg");
-        await _fx.ExcludeMachineAsync(_fx.TenantId, machine.Id);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None));
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            _fx.Service.UploadAsync(
-                machine.Id,
-                new[] { MachineParameterPhotoServiceFixture.CreateUpload() },
-                CancellationToken.None));
-        await Assert.ThrowsAsync<KeyNotFoundException>(
-            () => _fx.Service.DeleteAsync(photo.Id, CancellationToken.None));
-
-        var remaining = await _fx.DbContext.MachineParameterPhotos.AsNoTracking().ToListAsync();
-        Assert.Equal(new[] { photo.Id }, remaining.Select(item => item.Id).ToArray());
-        Assert.Equal("/uploads/excluded.jpg", remaining[0].ImageUrl);
-        Assert.Empty(_fx.Storage.UploadedUrls);
+        var remaining = Assert.Single(await _fx.DbContext.MachineParameterPhotos.AsNoTracking().ToListAsync());
+        Assert.Equal(photo.Id, remaining.Id);
+        Assert.Equal("/uploads/kept.jpg", remaining.ImageUrl);
         Assert.Empty(_fx.Storage.DeletedUrls);
     }
 
     [Fact]
-    public async Task RemovingExclusionRow_RestoresAccessToExistingPhotos()
+    public async Task Delete_UnlinkedLegacyPhotoIsNotExposed()
     {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.restored", "R1", array.Id);
-        var photo = await _fx.SeedPhotoAsync(_fx.TenantId, machine.Id, 1);
-        await _fx.ExcludeMachineAsync(_fx.TenantId, machine.Id);
+        await GrantCurrentUserAsync();
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.washing_system");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.largeHopper", "H1", array.Id);
+        var photo = await _fx.SeedPhotoAsync(
+            _fx.TenantId,
+            parameterId: null,
+            sortOrder: 1,
+            machineId: machine.Id,
+            imageUrl: "/uploads/unlinked.jpg");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None));
-
-        _fx.DbContext.MachineParameterMachineExclusions.RemoveRange(
-            await _fx.DbContext.MachineParameterMachineExclusions.ToListAsync());
-        await _fx.DbContext.SaveChangesAsync();
-
-        var photos = await _fx.Service.GetByMachineIdAsync(machine.Id, CancellationToken.None);
-        Assert.Equal(new[] { photo.Id }, photos.Select(item => item.Id).ToArray());
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => _fx.Service.DeleteAsync(photo.Id, CancellationToken.None));
+        var remaining = Assert.Single(await _fx.DbContext.MachineParameterPhotos.AsNoTracking().ToListAsync());
+        Assert.Equal(machine.Id, remaining.MachineId);
+        Assert.Null(remaining.ParameterId);
+        Assert.Equal("/uploads/unlinked.jpg", remaining.ImageUrl);
     }
 
     [Fact]
-    public async Task SharedHierarchy_StillIncludesExcludedMachine()
+    public async Task SharedHierarchy_StillIncludesMachinesOutsideTheParameterCatalog()
     {
-        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.line");
-        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.excluded", "E1", array.Id);
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.washing_system");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.largeHopper", "H1", array.Id);
         await _fx.ExcludeMachineAsync(_fx.TenantId, machine.Id);
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
 
         var shared = await new HierarchyService(_fx.DbContext, _fx.TenantContext)
             .GetHierarchyAsync(CancellationToken.None);
+        var catalog = await _fx.Service.GetCatalogAsync(CancellationToken.None);
 
         Assert.Contains(shared.SelectMany(group => group.Machines), item => item.Id == machine.Id);
+        Assert.Contains(shared, group => group.NameKey == "array.washing_system");
+        Assert.DoesNotContain(
+            catalog.Groups.SelectMany(group => group.Parameters),
+            parameter => parameter.NameKey == "machine.largeHopper");
         Assert.True(await _fx.DbContext.Machines.AnyAsync(item => item.Id == machine.Id && item.IsActive));
+        Assert.DoesNotContain(catalog.Groups, group => group.NameKey == HierarchyDefaults.UnassignedNameKey);
+    }
+
+    private async Task GrantCurrentUserAsync()
+    {
+        await _fx.SeedUserAsync(_fx.TenantId, _fx.UserId, "manager");
+        await _fx.GrantManagerAsync(_fx.TenantId, _fx.UserId);
+    }
+
+    private async Task<ParameterPhotoParameter> SeedActiveParameterAsync(string nameKey)
+    {
+        var group = await _fx.SeedGroupAsync(_fx.TenantId, $"group-{nameKey}");
+        return await _fx.SeedParameterAsync(_fx.TenantId, group.Id, nameKey);
     }
 }
