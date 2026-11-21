@@ -18,17 +18,18 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
             {
                 ParameterPhotoCatalog.WashingSystemGroupKey,
                 ParameterPhotoCatalog.CoolingSystemGroupKey,
+                ParameterPhotoCatalog.GanShomronGroupKey,
                 ParameterPhotoCatalog.PackingHouseGroupKey
             },
             ParameterPhotoCatalog.Groups.Select(group => group.NameKey).ToArray());
 
         Assert.Equal(
-            new[] { 1, 2, 3 },
+            new[] { 1, 2, 3, 4 },
             ParameterPhotoCatalog.Groups.Select(group => group.SortOrder).ToArray());
 
         var washing = ParameterPhotoCatalog.Groups[0];
         Assert.Equal(
-            new[] { ParameterPhotoCatalog.HopperKey, ParameterPhotoCatalog.CoolingSystemComputerKey },
+            new[] { ParameterPhotoCatalog.HopperKey, ParameterPhotoCatalog.WashingSystemComputerKey },
             washing.Parameters.Select(parameter => parameter.NameKey).ToArray());
 
         var cooling = ParameterPhotoCatalog.Groups[1];
@@ -37,18 +38,125 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
             {
                 ParameterPhotoCatalog.CompressorRoomsKey,
                 ParameterPhotoCatalog.ControlRoomAboveCoolingRoomsKey,
-                ParameterPhotoCatalog.HumidityControllersKey,
-                ParameterPhotoCatalog.GanShomronCoolingKey
+                ParameterPhotoCatalog.HumidityControllersKey
             },
             cooling.Parameters.Select(parameter => parameter.NameKey).ToArray());
-        Assert.Equal(new[] { 1, 2, 3, 4 }, cooling.Parameters.Select(parameter => parameter.SortOrder).ToArray());
+        Assert.Equal(new[] { 1, 2, 3 }, cooling.Parameters.Select(parameter => parameter.SortOrder).ToArray());
+        Assert.DoesNotContain(
+            ParameterPhotoCatalog.RetiredGanShomronCoolingKey,
+            cooling.Parameters.Select(parameter => parameter.NameKey));
 
-        var packing = ParameterPhotoCatalog.Groups[2];
+        var ganShomron = ParameterPhotoCatalog.Groups[2];
+        Assert.Equal(
+            ParameterPhotoCatalog.GanShomronMachineKeys.Append(ParameterPhotoCatalog.BagPullersUnderViscoseKey),
+            ganShomron.Parameters.Select(parameter => parameter.NameKey).ToArray());
+
+        var packing = ParameterPhotoCatalog.Groups[3];
         Assert.Equal(
             ParameterPhotoCatalog.PackingHouseMachineKeys,
             packing.Parameters.Take(ParameterPhotoCatalog.PackingHouseMachineKeys.Length).Select(parameter => parameter.NameKey).ToArray());
-        Assert.Equal(ParameterPhotoCatalog.BagPullersUnderViscoseKey, packing.Parameters[^1].NameKey);
-        Assert.Equal(29, packing.Parameters[^1].SortOrder);
+        Assert.Equal("machine.viscose", packing.Parameters[^1].NameKey);
+        Assert.Equal(28, packing.Parameters.Count);
+        Assert.DoesNotContain(
+            ParameterPhotoCatalog.BagPullersUnderViscoseKey,
+            packing.Parameters.Select(parameter => parameter.NameKey));
+    }
+
+    [Fact]
+    public async Task GetCatalog_ShowsGanShomron_WhenTheStoredCatalogPredatesThatGroup()
+    {
+        var washing = await _fx.SeedGroupAsync(_fx.TenantId, ParameterPhotoCatalog.WashingSystemGroupKey, 1);
+        await _fx.SeedParameterAsync(_fx.TenantId, washing.Id, ParameterPhotoCatalog.HopperKey, 1);
+        await _fx.SeedParameterAsync(_fx.TenantId, washing.Id, ParameterPhotoCatalog.WashingSystemComputerKey, 2);
+        var cooling = await _fx.SeedGroupAsync(_fx.TenantId, ParameterPhotoCatalog.CoolingSystemGroupKey, 2);
+        await _fx.SeedParameterAsync(_fx.TenantId, cooling.Id, ParameterPhotoCatalog.CompressorRoomsKey, 1);
+        await _fx.SeedParameterAsync(_fx.TenantId, cooling.Id, ParameterPhotoCatalog.ControlRoomAboveCoolingRoomsKey, 2);
+        await _fx.SeedParameterAsync(_fx.TenantId, cooling.Id, ParameterPhotoCatalog.HumidityControllersKey, 3);
+        await _fx.SeedParameterAsync(_fx.TenantId, cooling.Id, ParameterPhotoCatalog.RetiredGanShomronCoolingKey, 4);
+        var packing = await _fx.SeedGroupAsync(_fx.TenantId, ParameterPhotoCatalog.PackingHouseGroupKey, 3);
+        var sort = 1;
+        foreach (var nameKey in ParameterPhotoCatalog.PackingHouseMachineKeys)
+        {
+            await _fx.SeedParameterAsync(_fx.TenantId, packing.Id, nameKey, sort++);
+        }
+
+        await _fx.SeedParameterAsync(_fx.TenantId, packing.Id, ParameterPhotoCatalog.BagPullersUnderViscoseKey, sort);
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.washing_system");
+        var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.largeHopper", "H1", array.Id);
+
+        var catalog = await _fx.Service.GetCatalogAsync(CancellationToken.None);
+
+        Assert.Equal(
+            new[]
+            {
+                ParameterPhotoCatalog.WashingSystemGroupKey,
+                ParameterPhotoCatalog.CoolingSystemGroupKey,
+                ParameterPhotoCatalog.GanShomronGroupKey,
+                ParameterPhotoCatalog.PackingHouseGroupKey
+            },
+            catalog.Groups.Select(group => group.NameKey).ToArray());
+        Assert.Equal(
+            new[] { ParameterPhotoCatalog.HopperKey, ParameterPhotoCatalog.WashingSystemComputerKey },
+            catalog.Groups[0].Parameters.Select(parameter => parameter.NameKey).ToArray());
+        Assert.DoesNotContain(
+            catalog.Groups[1].Parameters,
+            parameter => parameter.NameKey == ParameterPhotoCatalog.RetiredGanShomronCoolingKey);
+        Assert.Equal(
+            ParameterPhotoCatalog.GanShomronMachineKeys.Append(ParameterPhotoCatalog.BagPullersUnderViscoseKey),
+            catalog.Groups[2].Parameters.Select(parameter => parameter.NameKey).ToArray());
+        Assert.Equal("machine.viscose", catalog.Groups[3].Parameters[^1].NameKey);
+        Assert.Equal(28, catalog.Groups[3].Parameters.Count);
+        Assert.DoesNotContain(
+            catalog.Groups[3].Parameters,
+            parameter => parameter.NameKey == ParameterPhotoCatalog.BagPullersUnderViscoseKey);
+
+        var storedMachine = await _fx.DbContext.Machines.SingleAsync(item => item.Id == machine.Id);
+        Assert.Equal("machine.largeHopper", storedMachine.Name);
+        Assert.Equal(array.Id, storedMachine.ArrayId);
+    }
+
+    [Fact]
+    public async Task Ensure_RetiresGanShomronCooling_WithoutChangingMachines()
+    {
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
+        var cooling = await _fx.DbContext.ParameterPhotoGroups.SingleAsync(group =>
+            group.TenantId == _fx.TenantId && group.NameKey == ParameterPhotoCatalog.CoolingSystemGroupKey);
+        await _fx.SeedParameterAsync(
+            _fx.TenantId,
+            cooling.Id,
+            ParameterPhotoCatalog.RetiredGanShomronCoolingKey,
+            sortOrder: 4);
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.ginoshar");
+        var machine = await _fx.SeedMachineAsync(
+            _fx.TenantId,
+            "machine.ginoshar.netPackingMachine",
+            "GS1",
+            array.Id);
+        var machineId = machine.Id;
+        var arrayId = array.Id;
+
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
+        var catalog = await _fx.Service.GetCatalogAsync(CancellationToken.None);
+
+        var retired = await _fx.DbContext.ParameterPhotoParameters.SingleAsync(parameter =>
+            parameter.TenantId == _fx.TenantId &&
+            parameter.NameKey == ParameterPhotoCatalog.RetiredGanShomronCoolingKey);
+        Assert.False(retired.IsActive);
+        Assert.Equal(cooling.Id, retired.GroupId);
+
+        var ganShomron = Assert.Single(catalog.Groups, group => group.NameKey == ParameterPhotoCatalog.GanShomronGroupKey);
+        Assert.Equal(
+            ParameterPhotoCatalog.GanShomronMachineKeys.Append(ParameterPhotoCatalog.BagPullersUnderViscoseKey),
+            ganShomron.Parameters.Select(parameter => parameter.NameKey).ToArray());
+        Assert.DoesNotContain(
+            catalog.Groups.SelectMany(group => group.Parameters),
+            parameter => parameter.NameKey == ParameterPhotoCatalog.RetiredGanShomronCoolingKey);
+
+        var storedMachine = await _fx.DbContext.Machines.SingleAsync(item => item.Id == machineId);
+        var storedArray = await _fx.DbContext.Arrays.SingleAsync(item => item.Id == arrayId);
+        Assert.Equal("machine.ginoshar.netPackingMachine", storedMachine.Name);
+        Assert.Equal(arrayId, storedMachine.ArrayId);
+        Assert.Equal("array.ginoshar", storedArray.NameKey);
     }
 
     [Fact]
@@ -76,6 +184,12 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
         Assert.Contains("'parameterPhoto.parameter.hopper'", linker, StringComparison.Ordinal);
         Assert.Contains(ParameterPhotoRollbackGuard.Message, guard, StringComparison.Ordinal);
         Assert.DoesNotContain("DELETE FROM", guard, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"'{ParameterPhotoCatalog.RetiredGanShomronCoolingKey}'",
+            migration,
+            StringComparison.Ordinal);
+        Assert.Contains("'array.ginoshar'", migration, StringComparison.Ordinal);
+        Assert.Contains("'machine.ginoshar.netPackingMachine'", migration, StringComparison.Ordinal);
     }
 
     [Fact]

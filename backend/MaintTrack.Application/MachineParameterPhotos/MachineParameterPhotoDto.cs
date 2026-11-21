@@ -25,7 +25,8 @@ public sealed record ParameterPhotoGroupDto(
 
 public sealed record ParameterPhotoCatalogDto(
     IReadOnlyList<ParameterPhotoGroupDto> Groups,
-    bool CanManage);
+    bool CanManage,
+    int UnresolvedPhotoCount);
 
 public sealed record LegacyParameterPhotoDto(
     Guid Id,

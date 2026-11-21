@@ -14,6 +14,7 @@ export type ParameterPhotoGroup = {
 export type MachineParameterPhotosHierarchy = {
   groups: ParameterPhotoGroup[];
   canManage: boolean;
+  unresolvedPhotoCount: number;
 };
 
 export type MachineParameterPhoto = {

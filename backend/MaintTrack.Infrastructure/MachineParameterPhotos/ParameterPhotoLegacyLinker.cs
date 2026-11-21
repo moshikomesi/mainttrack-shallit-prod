@@ -22,6 +22,13 @@ public sealed record ParameterPhotoLinkResult(
 /// </summary>
 public static class ParameterPhotoLegacyLinker
 {
+    public static readonly IReadOnlySet<string> DeniedMachineNames = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "machine.largeHopper",
+        "machine.smallHopper",
+        "machine.onion.hopper"
+    };
+
     public const string AmbiguousNamesMessage =
         "Legacy Parameter Photos linking left some photos unlinked for tenant {TenantId} because these machine names are duplicated. Photos whose machine name is unique in the tenant were still linked: {MachineNames}";
 

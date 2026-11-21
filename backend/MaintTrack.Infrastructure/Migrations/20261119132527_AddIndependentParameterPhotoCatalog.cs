@@ -146,7 +146,8 @@ namespace MaintTrack.Infrastructure.Migrations
                 CROSS JOIN (VALUES
                     ('array.washing_system', 1),
                     ('parameterPhoto.group.coolingSystem', 2),
-                    ('array.packing_house', 3)
+                    ('array.ginoshar', 3),
+                    ('array.packing_house', 4)
                 ) AS spec(name_key, sort_order)
                 WHERE NOT EXISTS (
                     SELECT 1
@@ -167,7 +168,10 @@ namespace MaintTrack.Infrastructure.Migrations
                     ('parameterPhoto.group.coolingSystem', 'parameterPhoto.parameter.compressorRooms', 1),
                     ('parameterPhoto.group.coolingSystem', 'parameterPhoto.parameter.controlRoomAboveCoolingRooms', 2),
                     ('parameterPhoto.group.coolingSystem', 'parameterPhoto.parameter.humidityControllers', 3),
-                    ('parameterPhoto.group.coolingSystem', 'parameterPhoto.parameter.ganShomronCooling', 4),
+                    ('array.ginoshar', 'machine.ginoshar.netPackingMachine', 1),
+                    ('array.ginoshar', 'machine.ginoshar.sensorPackingMachine', 2),
+                    ('array.ginoshar', 'machine.ginoshar.airCompressor', 3),
+                    ('array.ginoshar', 'parameterPhoto.parameter.bagPullersUnderViscose', 4),
                     ('array.packing_house', 'machine.sorter1', 1),
                     ('array.packing_house', 'machine.sorter2', 2),
                     ('array.packing_house', 'machine.sorter3', 3),
@@ -195,8 +199,7 @@ namespace MaintTrack.Infrastructure.Migrations
                     ('array.packing_house', 'machine.sorterLine6', 25),
                     ('array.packing_house', 'machine.masters', 26),
                     ('array.packing_house', 'machine.accumulatorOutside', 27),
-                    ('array.packing_house', 'machine.viscose', 28),
-                    ('array.packing_house', 'parameterPhoto.parameter.bagPullersUnderViscose', 29)
+                    ('array.packing_house', 'machine.viscose', 28)
                 ) AS spec(group_key, name_key, sort_order)
                     ON catalog_group.name_key = spec.group_key
                 WHERE NOT EXISTS (

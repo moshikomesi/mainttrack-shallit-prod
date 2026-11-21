@@ -207,6 +207,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
 
   const [groups, setGroups] = useState<ParameterPhotoGroup[]>([]);
   const [canManage, setCanManage] = useState(false);
+  const [unresolvedPhotoCount, setUnresolvedPhotoCount] = useState(0);
   const [loadingHierarchy, setLoadingHierarchy] = useState(false);
   const [hierarchyError, setHierarchyError] = useState<string | null>(null);
 
@@ -302,7 +303,9 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
       if (!mountedRef.current) return;
       setGroups(Array.isArray(result.groups) ? result.groups : []);
       setCanManage(result.canManage === true);
-      if (result.canManage === true) {
+      const unresolvedCount = result.unresolvedPhotoCount ?? 0;
+      setUnresolvedPhotoCount(unresolvedCount);
+      if (result.canManage === true && unresolvedCount > 0) {
         await loadLegacyPhotos();
       } else if (mountedRef.current) {
         setLegacyPhotos([]);
@@ -312,6 +315,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
       if (!mountedRef.current) return;
       setGroups([]);
       setCanManage(false);
+      setUnresolvedPhotoCount(0);
       setHierarchyError(t('common.failedToLoad'));
     } finally {
       if (mountedRef.current) {
@@ -440,7 +444,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
       await assignLegacyMachineParameterPhoto(photoId, parameterId);
       if (!mountedRef.current) return;
       toast.success(t('machineParameterPhotos.legacyAssigned'));
-      await loadLegacyPhotos();
+      await loadHierarchy();
       if (selectedParameterId === parameterId) {
         await loadPhotos(parameterId);
       }
@@ -463,7 +467,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
       await deleteLegacyMachineParameterPhoto(photoId);
       if (!mountedRef.current) return;
       toast.success(t('machineParameterPhotos.deleteSuccess'));
-      await loadLegacyPhotos();
+      await loadHierarchy();
     } catch (err) {
       console.error(err);
       if (mountedRef.current) {
@@ -645,14 +649,17 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
           </div>
         </div>
 
-        {canManage && (
-          <section className="bg-white border border-neutral-200 rounded-lg p-4 space-y-3">
+        {unresolvedPhotoCount > 0 && (
+          <section className="bg-white border border-amber-300 rounded-lg p-4 space-y-3">
             <h2 className="text-sm font-semibold text-neutral-800">
               {t('machineParameterPhotos.legacyTitle')}
             </h2>
-            {legacyPhotos.length === 0 ? (
-              <p className="text-sm text-neutral-600">{t('machineParameterPhotos.legacyEmpty')}</p>
-            ) : (
+            <p className="text-sm text-neutral-700">
+              {canManage
+                ? t('machineParameterPhotos.legacyNeedsChoice')
+                : t('machineParameterPhotos.legacyNeedsManager')}
+            </p>
+            {canManage &&
               legacyPhotos.map((photo) => {
                 const src = safeImageSrc(photo.imageUrl);
                 const machineLabel = photo.machineName ? t(photo.machineName) : photo.machineId;
@@ -678,7 +685,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
                           setLegacyTargets((current) => ({ ...current, [photo.id]: event.target.value }))
                         }
                       >
-                        <option value="">{t('machineParameterPhotos.selectParameter')}</option>
+                        <option value="">{t('machineParameterPhotos.legacyChooseParameter')}</option>
                         {assignableParameters.map((parameter) => (
                           <option key={parameter.id} value={parameter.id}>
                             {parameter.label}
@@ -706,8 +713,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
                     </div>
                   </article>
                 );
-              })
-            )}
+              })}
           </section>
         )}
 

@@ -11,26 +11,39 @@ public sealed record ParameterPhotoGroupDefinition(
     IReadOnlyList<ParameterPhotoParameterDefinition> Parameters);
 
 /// <summary>
-/// Canonical Parameter Photos catalog. Packing House entries reuse the shared
-/// machine translation keys so existing labels and photo associations stay
-/// aligned. A photo is linked only when <c>machines.name</c> equals the
-/// parameter <c>name_key</c> in the same tenant. Hopper, the cooling-system
-/// computer, the Cooling System parameters, and the new bag-puller parameter
-/// have no unambiguous machine match, so they are catalog-only.
+/// Canonical Parameter Photos catalog. Packing House and Gan Shomron entries
+/// reuse the shared machine translation keys so existing labels stay aligned.
+/// A photo is linked only when <c>machines.name</c> equals the parameter
+/// <c>name_key</c> in the same tenant. Hopper, the washing-system computer,
+/// the Cooling System parameters, and the bag-puller parameter have no
+/// unambiguous machine match, so they are catalog-only. Gan Shomron is its
+/// own group. <see cref="RetiredGanShomronCoolingKey"/> is not part of the catalog.
 /// </summary>
 public static class ParameterPhotoCatalog
 {
     public const string WashingSystemGroupKey = "array.washing_system";
     public const string CoolingSystemGroupKey = "parameterPhoto.group.coolingSystem";
+    public const string GanShomronGroupKey = "array.ginoshar";
     public const string PackingHouseGroupKey = "array.packing_house";
 
     public const string HopperKey = "parameterPhoto.parameter.hopper";
-    public const string CoolingSystemComputerKey = "parameterPhoto.parameter.coolingSystemComputer";
+    public const string WashingSystemComputerKey = "parameterPhoto.parameter.coolingSystemComputer";
     public const string CompressorRoomsKey = "parameterPhoto.parameter.compressorRooms";
     public const string ControlRoomAboveCoolingRoomsKey = "parameterPhoto.parameter.controlRoomAboveCoolingRooms";
     public const string HumidityControllersKey = "parameterPhoto.parameter.humidityControllers";
-    public const string GanShomronCoolingKey = "parameterPhoto.parameter.ganShomronCooling";
     public const string BagPullersUnderViscoseKey = "parameterPhoto.parameter.bagPullersUnderViscose";
+
+    /// <summary>
+    /// Temporary duplicate created while the bag-puller entry was copied into
+    /// Gan Shomron. The canonical entry keeps <see cref="BagPullersUnderViscoseKey"/>.
+    /// </summary>
+    public const string RetiredDuplicateBagPullersKey = "parameterPhoto.parameter.ganShomronBagPullersUnderViscose";
+
+    /// <summary>
+    /// Earlier catalog drafts stored Gan Shomron as this cooling parameter.
+    /// It is retired and must not be shown or used for new assignments.
+    /// </summary>
+    public const string RetiredGanShomronCoolingKey = "parameterPhoto.parameter.ganShomronCooling";
 
     /// <summary>
     /// Active Packing House machines from the hierarchy map, in display order.
@@ -68,6 +81,17 @@ public static class ParameterPhotoCatalog
         "machine.viscose"
     ];
 
+    /// <summary>
+    /// Gan Shomron entries from the existing hierarchy, in display order.
+    /// These are catalog parameters only; the shared machines are not changed.
+    /// </summary>
+    public static readonly string[] GanShomronMachineKeys =
+    [
+        "machine.ginoshar.netPackingMachine",
+        "machine.ginoshar.sensorPackingMachine",
+        "machine.ginoshar.airCompressor"
+    ];
+
     public static IReadOnlyList<ParameterPhotoGroupDefinition> Groups { get; } = BuildGroups();
 
     public static IEnumerable<string> AllNameKeys()
@@ -86,9 +110,13 @@ public static class ParameterPhotoCatalog
     {
         var packingParameters = PackingHouseMachineKeys
             .Select((nameKey, index) => new ParameterPhotoParameterDefinition(nameKey, index + 1))
+            .ToList();
+
+        var ganShomronParameters = GanShomronMachineKeys
+            .Select((nameKey, index) => new ParameterPhotoParameterDefinition(nameKey, index + 1))
             .Append(new ParameterPhotoParameterDefinition(
                 BagPullersUnderViscoseKey,
-                PackingHouseMachineKeys.Length + 1))
+                GanShomronMachineKeys.Length + 1))
             .ToList();
 
         return
@@ -98,7 +126,7 @@ public static class ParameterPhotoCatalog
                 1,
                 [
                     new ParameterPhotoParameterDefinition(HopperKey, 1),
-                    new ParameterPhotoParameterDefinition(CoolingSystemComputerKey, 2)
+                    new ParameterPhotoParameterDefinition(WashingSystemComputerKey, 2)
                 ]),
             new ParameterPhotoGroupDefinition(
                 CoolingSystemGroupKey,
@@ -106,12 +134,15 @@ public static class ParameterPhotoCatalog
                 [
                     new ParameterPhotoParameterDefinition(CompressorRoomsKey, 1),
                     new ParameterPhotoParameterDefinition(ControlRoomAboveCoolingRoomsKey, 2),
-                    new ParameterPhotoParameterDefinition(HumidityControllersKey, 3),
-                    new ParameterPhotoParameterDefinition(GanShomronCoolingKey, 4)
+                    new ParameterPhotoParameterDefinition(HumidityControllersKey, 3)
                 ]),
             new ParameterPhotoGroupDefinition(
-                PackingHouseGroupKey,
+                GanShomronGroupKey,
                 3,
+                ganShomronParameters),
+            new ParameterPhotoGroupDefinition(
+                PackingHouseGroupKey,
+                4,
                 packingParameters)
         ];
     }

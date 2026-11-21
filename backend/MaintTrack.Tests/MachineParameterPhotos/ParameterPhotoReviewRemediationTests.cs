@@ -66,7 +66,7 @@ public sealed class ParameterPhotoReviewRemediationTests : IAsyncDisposable
         var photo = await _fx.SeedPhotoAsync(_fx.TenantId, null, 2, machine.Id, "/uploads/keep.jpg");
         var target = await _fx.DbContext.ParameterPhotoParameters.SingleAsync(parameter =>
             parameter.TenantId == _fx.TenantId &&
-            parameter.NameKey == ParameterPhotoCatalog.CoolingSystemComputerKey);
+            parameter.NameKey == ParameterPhotoCatalog.WashingSystemComputerKey);
 
         var assigned = await _fx.Service.AssignLegacyPhotoAsync(photo.Id, target.Id, CancellationToken.None);
 
@@ -350,7 +350,7 @@ public sealed class ParameterPhotoReviewRemediationTests : IAsyncDisposable
             });
             await setup.SaveChangesAsync();
             firstParameterId = await setup.ParameterPhotoParameters
-                .Where(parameter => parameter.TenantId == tenantId && parameter.NameKey == ParameterPhotoCatalog.CoolingSystemComputerKey)
+                .Where(parameter => parameter.TenantId == tenantId && parameter.NameKey == ParameterPhotoCatalog.WashingSystemComputerKey)
                 .Select(parameter => parameter.Id)
                 .SingleAsync();
             secondParameterId = await setup.ParameterPhotoParameters
@@ -437,7 +437,7 @@ public sealed class ParameterPhotoReviewRemediationTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task RepeatedCatalogLoads_DoNotRunLegacyLinkUpdates()
+    public async Task CatalogLoad_LinksAUniqueMatch_AndLeavesPhotosWithoutAMatchUnresolved()
     {
         var connectionString = $"Data Source=file:catalog-read-{Guid.NewGuid():N}?mode=memory&cache=shared";
         await using var keepAlive = new SqliteConnection(connectionString);
@@ -522,17 +522,27 @@ public sealed class ParameterPhotoReviewRemediationTests : IAsyncDisposable
             new StubCurrentUserContext(tenantId, Guid.NewGuid()),
             new RecordingFileStorageService(),
             logger);
-        var before = await db.MachineParameterPhotos.AsNoTracking().IgnoreQueryFilters().OrderBy(photo => photo.ImageUrl).ToListAsync();
-
-        await service.GetCatalogAsync(CancellationToken.None);
-        await service.GetCatalogAsync(CancellationToken.None);
+        var first = await service.GetCatalogAsync(CancellationToken.None);
+        var linkedUpdates = updates.UpdateCount;
+        updates.Reset();
+        var second = await service.GetCatalogAsync(CancellationToken.None);
 
         var after = await db.MachineParameterPhotos.AsNoTracking().IgnoreQueryFilters().OrderBy(photo => photo.ImageUrl).ToListAsync();
+        var viscoseParameterId = await db.ParameterPhotoParameters
+            .Where(parameter => parameter.TenantId == tenantId && parameter.NameKey == "machine.viscose")
+            .Select(parameter => parameter.Id)
+            .SingleAsync();
+        var viscose = after.Single(photo => photo.Id == photoId);
+        var hopper = after.Single(photo => photo.ImageUrl == "/uploads/large-hopper.jpg");
+        Assert.Equal(1, linkedUpdates);
         Assert.Equal(0, updates.UpdateCount);
         Assert.Empty(logger.Messages);
-        Assert.Equal(before.Select(Snapshot), after.Select(Snapshot));
-        Assert.All(after, photo => Assert.Null(photo.ParameterId));
-        Assert.Contains(after, photo => photo.Id == photoId && photo.MachineId == machineId && photo.ImageUrl == "/uploads/viscose-unlinked.jpg");
+        Assert.Equal(viscoseParameterId, viscose.ParameterId);
+        Assert.Equal(machineId, viscose.MachineId);
+        Assert.Equal("/uploads/viscose-unlinked.jpg", viscose.ImageUrl);
+        Assert.Null(hopper.ParameterId);
+        Assert.Equal(1, first.UnresolvedPhotoCount);
+        Assert.Equal(1, second.UnresolvedPhotoCount);
     }
 
     [Fact]
@@ -600,7 +610,7 @@ public sealed class ParameterPhotoReviewRemediationTests : IAsyncDisposable
         await ParameterPhotoCatalogSeeder.EnsureAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
         var target = await _fx.DbContext.ParameterPhotoParameters.SingleAsync(parameter =>
             parameter.TenantId == _fx.TenantId &&
-            parameter.NameKey == ParameterPhotoCatalog.CoolingSystemComputerKey);
+            parameter.NameKey == ParameterPhotoCatalog.WashingSystemComputerKey);
         var existing = await _fx.SeedPhotoAsync(_fx.TenantId, target.Id, 4, machineId: null, "/uploads/existing-sort.jpg");
         var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.washing_system");
         var machine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.largeHopper", "H1", array.Id);

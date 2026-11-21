@@ -100,7 +100,13 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
             .Where(group => group.Parameters.Count > 0)
             .ToList();
 
-        return new ParameterPhotoCatalogDto(visibleGroups, await IsManagerAsync(ct));
+        var unresolvedPhotoCount = await _dbContext.MachineParameterPhotos
+            .AsNoTracking()
+            .CountAsync(
+                photo => photo.TenantId == tenantId && photo.ParameterId == null && photo.MachineId != null,
+                ct);
+
+        return new ParameterPhotoCatalogDto(visibleGroups, await IsManagerAsync(ct), unresolvedPhotoCount);
     }
 
     public async Task<IReadOnlyList<MachineParameterPhotoDto>> GetByParameterIdAsync(
@@ -125,6 +131,7 @@ public sealed class MachineParameterPhotoService : IMachineParameterPhotoService
     {
         var tenantId = EnsureTenantResolved();
         await EnsureCanManageAsync(ct);
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_dbContext, tenantId, ct);
 
         var photos = await _dbContext.MachineParameterPhotos
             .AsNoTracking()

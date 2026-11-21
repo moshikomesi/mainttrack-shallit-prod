@@ -225,6 +225,7 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
             {
                 ParameterPhotoCatalog.WashingSystemGroupKey,
                 ParameterPhotoCatalog.CoolingSystemGroupKey,
+                ParameterPhotoCatalog.GanShomronGroupKey,
                 ParameterPhotoCatalog.PackingHouseGroupKey
             },
             groups.Select(group => group.GetProperty("nameKey").GetString()).ToArray());
@@ -233,14 +234,24 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
             .Select(parameter => parameter.GetProperty("nameKey").GetString())
             .ToArray();
         Assert.Equal(
-            new[] { ParameterPhotoCatalog.HopperKey, ParameterPhotoCatalog.CoolingSystemComputerKey },
+            new[] { ParameterPhotoCatalog.HopperKey, ParameterPhotoCatalog.WashingSystemComputerKey },
             washingParameters);
         Assert.Contains(
             groups[1].GetProperty("parameters").EnumerateArray(),
             parameter => parameter.GetProperty("nameKey").GetString() == ParameterPhotoCatalog.CompressorRoomsKey);
+        var packing = groups.Single(group => group.GetProperty("nameKey").GetString() == ParameterPhotoCatalog.PackingHouseGroupKey);
+        var packingKeys = packing.GetProperty("parameters").EnumerateArray()
+            .Select(parameter => parameter.GetProperty("nameKey").GetString())
+            .ToArray();
+        Assert.Equal(ParameterPhotoCatalog.PackingHouseMachineKeys.Length, packingKeys.Length);
+        Assert.DoesNotContain(ParameterPhotoCatalog.BagPullersUnderViscoseKey, packingKeys);
+        var ganShomron = groups.Single(group => group.GetProperty("nameKey").GetString() == ParameterPhotoCatalog.GanShomronGroupKey);
         Assert.Contains(
-            groups[2].GetProperty("parameters").EnumerateArray(),
+            ganShomron.GetProperty("parameters").EnumerateArray(),
             parameter => parameter.GetProperty("nameKey").GetString() == ParameterPhotoCatalog.BagPullersUnderViscoseKey);
+        Assert.DoesNotContain(
+            groups.SelectMany(group => group.GetProperty("parameters").EnumerateArray()),
+            parameter => parameter.GetProperty("nameKey").GetString() == ParameterPhotoCatalog.RetiredGanShomronCoolingKey);
         Assert.DoesNotContain(
             groups.SelectMany(group => group.GetProperty("parameters").EnumerateArray()),
             parameter => parameter.GetProperty("nameKey").GetString() == "machine.largeHopper");
@@ -482,7 +493,7 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         var coolingParameterId = await _dbContext.ParameterPhotoParameters
             .Where(parameter =>
                 parameter.TenantId == _tenantId &&
-                parameter.NameKey == ParameterPhotoCatalog.CoolingSystemComputerKey)
+                parameter.NameKey == ParameterPhotoCatalog.WashingSystemComputerKey)
             .Select(parameter => parameter.Id)
             .SingleAsync();
         var assign = await _client.PostAsJsonAsync(
@@ -496,6 +507,16 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         Assert.Equal(_sharedMachineId, stored.MachineId);
         Assert.Equal("/uploads/first-hopper.jpg", stored.ImageUrl);
         Assert.Equal(1, await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().CountAsync(photo => photo.ParameterId == _hopperParameterId));
+
+        var catalog = await _client.GetFromJsonAsync<ParameterPhotoCatalogDto>("/api/v1/machine-parameter-photos/hierarchy");
+        Assert.NotNull(catalog);
+        Assert.Equal(0, catalog!.UnresolvedPhotoCount);
+        var remaining = await _client.GetFromJsonAsync<List<LegacyParameterPhotoDto>>("/api/v1/machine-parameter-photos/legacy");
+        Assert.NotNull(remaining);
+        Assert.Empty(remaining!);
+        var saved = await _client.GetFromJsonAsync<List<MachineParameterPhotoDto>>(
+            $"/api/v1/machine-parameter-photos?parameterId={coolingParameterId}");
+        Assert.Contains(saved!, photo => photo.Id == legacyPhotoId && photo.ImageUrl == "/uploads/first-hopper.jpg");
     }
 
     [Fact]
@@ -579,7 +600,7 @@ public sealed class MachineParameterPhotoApiIntegrationTests : IAsyncLifetime
         await _dbContext.ParameterPhotoParameters
             .Where(parameter =>
                 parameter.TenantId == _tenantId &&
-                parameter.NameKey == ParameterPhotoCatalog.CoolingSystemComputerKey)
+                parameter.NameKey == ParameterPhotoCatalog.WashingSystemComputerKey)
             .Select(parameter => parameter.Id)
             .SingleAsync();
 

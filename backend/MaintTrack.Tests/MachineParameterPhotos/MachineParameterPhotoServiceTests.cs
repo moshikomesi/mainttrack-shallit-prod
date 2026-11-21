@@ -34,13 +34,14 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
             {
                 ParameterPhotoCatalog.WashingSystemGroupKey,
                 ParameterPhotoCatalog.CoolingSystemGroupKey,
+                ParameterPhotoCatalog.GanShomronGroupKey,
                 ParameterPhotoCatalog.PackingHouseGroupKey
             },
             result.Groups.Select(group => group.NameKey).ToArray());
 
         var washingGroup = result.Groups[0];
         Assert.Equal(
-            new[] { ParameterPhotoCatalog.HopperKey, ParameterPhotoCatalog.CoolingSystemComputerKey },
+            new[] { ParameterPhotoCatalog.HopperKey, ParameterPhotoCatalog.WashingSystemComputerKey },
             washingGroup.Parameters.Select(parameter => parameter.NameKey).ToArray());
 
         var coolingGroup = result.Groups[1];
@@ -49,19 +50,22 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
             {
                 ParameterPhotoCatalog.CompressorRoomsKey,
                 ParameterPhotoCatalog.ControlRoomAboveCoolingRoomsKey,
-                ParameterPhotoCatalog.HumidityControllersKey,
-                ParameterPhotoCatalog.GanShomronCoolingKey
+                ParameterPhotoCatalog.HumidityControllersKey
             },
             coolingGroup.Parameters.Select(parameter => parameter.NameKey).ToArray());
 
-        var packingGroup = result.Groups[2];
+        var ganShomronGroup = result.Groups[2];
+        Assert.Equal(
+            ParameterPhotoCatalog.GanShomronMachineKeys.Append(ParameterPhotoCatalog.BagPullersUnderViscoseKey),
+            ganShomronGroup.Parameters.Select(parameter => parameter.NameKey).ToArray());
+
+        var packingGroup = result.Groups[3];
         Assert.Equal(ParameterPhotoCatalog.PackingHouseMachineKeys[0], packingGroup.Parameters[0].NameKey);
-        Assert.Equal(
+        Assert.Equal("machine.viscose", packingGroup.Parameters[^1].NameKey);
+        Assert.Equal(ParameterPhotoCatalog.PackingHouseMachineKeys.Length, packingGroup.Parameters.Count);
+        Assert.DoesNotContain(
             ParameterPhotoCatalog.BagPullersUnderViscoseKey,
-            packingGroup.Parameters[^1].NameKey);
-        Assert.Equal(
-            ParameterPhotoCatalog.PackingHouseMachineKeys.Length + 1,
-            packingGroup.Parameters.Count);
+            packingGroup.Parameters.Select(parameter => parameter.NameKey));
 
         var returnedKeys = result.Groups
             .SelectMany(group => group.Parameters.Select(parameter => parameter.NameKey).Prepend(group.NameKey))
@@ -75,6 +79,7 @@ public sealed class MachineParameterPhotoServiceTests : IAsyncDisposable
         Assert.DoesNotContain("machine.packing.stackers", returnedKeys);
         Assert.DoesNotContain("machine.packing.visionSystem", returnedKeys);
         Assert.DoesNotContain("parameterPhoto.parameter.inactive", returnedKeys);
+        Assert.DoesNotContain(ParameterPhotoCatalog.RetiredGanShomronCoolingKey, returnedKeys);
     }
 
     [Fact]
