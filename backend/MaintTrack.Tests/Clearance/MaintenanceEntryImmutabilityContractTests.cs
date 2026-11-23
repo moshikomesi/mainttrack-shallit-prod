@@ -10,7 +10,14 @@ namespace MaintTrack.Tests.Clearance;
 /// </summary>
 public sealed class MaintenanceEntryImmutabilityContractTests
 {
-    private static readonly string[] AllowedOperations = { "CreateAsync", "DeleteAsync", "GetAsync", "GetByIdAsync" };
+    private static readonly string[] AllowedOperations =
+    {
+        "CreateAsync",
+        "DeleteAsync",
+        "GetAsync",
+        "GetByIdAsync",
+        "GetTranslationsAsync"
+    };
 
     [Fact]
     public void ServiceInterface_ExposesNoUpdateOperation()

@@ -21,6 +21,7 @@ import type { MaintenanceEntryDto } from '../types/maintenance';
 import type { TreatmentDto } from '../types/treatment';
 import { formatDisplayDate, formatDisplayDateTime, formatFormDate } from '../utils/formatDate';
 import { formatTechnician } from '../utils/formatTechnician';
+import { viewMaintenanceDescription } from '../services/maintenanceDescription';
 import { resolveCatalogDisplayValue, resolveCatalogKey } from '../utils/resolveCatalogDisplayValue';
 import type { MorningRoundReportVariant, ReportListItem, ReportsListReturnContext, ReportsListScreenProps } from '../types/reports';
 
@@ -29,16 +30,6 @@ function interpolate(template: string, values: Record<string, string>): string {
     (result, [key, value]) => result.replace(`{${key}}`, value),
     template
   );
-}
-
-function parseMaintenanceV2Description(description: string): { component: string; details: string } | null {
-  const text = description ?? '';
-  const parts = text.split('\n');
-  // First line is the component; remaining lines are optional fault details.
-  const component = (parts[0] ?? '').trim();
-  if (!component) return null;
-  const details = parts.slice(1).join('\n').trim();
-  return { component, details };
 }
 
 export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: ReportsListScreenProps) {
@@ -309,8 +300,8 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
 
       if (selectedComponentKey) {
         if (r.maintenanceTypeCode !== 'other' || !r.description) return false;
-        const parsed = parseMaintenanceV2Description(r.description);
-        if (!parsed) return false;
+        const parsed = viewMaintenanceDescription(r.description);
+        if (!parsed?.component) return false;
         // Match by catalog key so filtering works across languages and for
         // legacy rows that stored a localized component label.
         const storedKey = resolveCatalogKey(parsed.component);
@@ -737,16 +728,21 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                         {(() => {
                           const parsed =
                             report.maintenanceTypeCode === 'other' && report.description
-                              ? parseMaintenanceV2Description(report.description)
+                              ? viewMaintenanceDescription(report.description)
                               : null;
-                          if (parsed) {
+                          if (parsed?.version === 'v1') {
+                            return (
+                              <span className="text-neutral-700 line-clamp-2">{parsed.narrative}</span>
+                            );
+                          }
+                          if (parsed?.component) {
                             return (
                               <>
                                 <span className="font-medium text-neutral-900">
                                   {resolveCatalogDisplayValue(parsed.component, t)}
                                 </span>
-                                {parsed.details ? (
-                                  <span className="text-neutral-600"> — {parsed.details}</span>
+                                {parsed.narrative ? (
+                                  <span className="text-neutral-600"> — {parsed.narrative}</span>
                                 ) : null}
                               </>
                             );

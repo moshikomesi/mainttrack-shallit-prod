@@ -4,6 +4,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { getHierarchy, type HierarchyArray } from '../services/hierarchyService';
 import { getClearanceAccess, getClearanceQueue } from '../services/clearanceService';
 import type { ClearanceAccess, ClearanceItem, ClearanceStatus } from '../types/clearance';
+import { viewMaintenanceDescription } from '../services/maintenanceDescription';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/formatDate';
 import { resolveCatalogDisplayValue } from '../utils/resolveCatalogDisplayValue';
 import { AppHeader } from './AppHeader';
@@ -23,6 +24,37 @@ type LoadState =
 interface ClearanceScreenProps {
   onBack: () => void;
   onOpenReport: (item: ClearanceItem) => void;
+}
+
+/** Original-language Clearance body: component (if any) then narrative; never shows sentinels. */
+function ClearanceMaintenanceDescription({
+  description,
+  maintenanceTypeCode,
+  translate,
+}: {
+  description: string;
+  maintenanceTypeCode: string | null | undefined;
+  translate: (key: string) => string;
+}) {
+  const parsed = viewMaintenanceDescription(description);
+  if (!parsed) return null;
+
+  const lines: string[] = [];
+  if (parsed.component) {
+    lines.push(
+      maintenanceTypeCode === 'other'
+        ? resolveCatalogDisplayValue(parsed.component, translate)
+        : parsed.component
+    );
+  }
+  if (parsed.narrative) lines.push(parsed.narrative);
+  if (lines.length === 0) return null;
+
+  return (
+    <div className="text-sm text-neutral-700" style={{ whiteSpace: 'pre-wrap' }}>
+      {lines.join('\n')}
+    </div>
+  );
 }
 
 export function ClearanceScreen({ onBack, onOpenReport }: ClearanceScreenProps) {
@@ -288,13 +320,11 @@ export function ClearanceScreen({ onBack, onOpenReport }: ClearanceScreenProps) 
                 </div>
 
                 {item.sourceType === 'maintenance_entry' && item.description?.trim() && (
-                  <div className="text-sm text-neutral-700" style={{ whiteSpace: 'pre-wrap' }}>
-                    {item.description.split('\n').map((line, index) =>
-                      index === 0 && item.maintenanceTypeCode === 'other'
-                        ? resolveCatalogDisplayValue(line, t)
-                        : line
-                    ).join('\n')}
-                  </div>
+                  <ClearanceMaintenanceDescription
+                    description={item.description}
+                    maintenanceTypeCode={item.maintenanceTypeCode}
+                    translate={t}
+                  />
                 )}
 
                 {item.sourceType === 'morning_round_v2' && item.findings.length > 0 && (

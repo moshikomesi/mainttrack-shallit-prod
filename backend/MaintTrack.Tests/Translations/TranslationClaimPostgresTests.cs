@@ -264,6 +264,40 @@ public sealed class TranslationClaimPostgresTests : IAsyncLifetime
         Assert.Equal(1, await db.Db.TranslationJobs.CountAsync());
     }
 
+    [PostgresFact]
+    public async Task ConcurrentEnqueueAll_CreatesOneJobPerLanguage()
+    {
+        await ResetAsync();
+        var tenantId = Guid.NewGuid();
+        var entityId = Guid.NewGuid();
+        var requests = TranslationLanguages.Supported
+            .Select(language => new EnqueueTranslationRequest(
+                TranslatableFields.MaintenanceEntry,
+                entityId,
+                TranslatableFields.Description,
+                "Seal leaking",
+                language))
+            .ToArray();
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => Task.Run(async () =>
+        {
+            await using var opened = Open(tenantId);
+            return await opened.Repository.EnqueueAllAsync(requests, CancellationToken.None);
+        })));
+
+        Assert.Single(results, batch => batch.All(result => result.Created));
+        Assert.Equal(3, results.Sum(batch => batch.Count(result => result.Created)));
+        Assert.All(results, batch => Assert.Equal(3, batch.Count));
+        var expectedIds = results[0].Select(result => result.Job.Id).OrderBy(id => id).ToArray();
+        Assert.All(results, batch =>
+            Assert.Equal(expectedIds, batch.Select(result => result.Job.Id).OrderBy(id => id).ToArray()));
+
+        await using var check = Open(tenantId);
+        var jobs = await check.Db.TranslationJobs.AsNoTracking().ToListAsync();
+        Assert.Equal(3, jobs.Count);
+        Assert.Equal(3, jobs.Select(job => job.TargetLanguage).Distinct().Count());
+    }
+
     private async Task ResetAsync()
     {
         await using var db = Open(null);

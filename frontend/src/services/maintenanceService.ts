@@ -3,6 +3,7 @@ import { endpoints } from '../api/endpoints';
 import type {
   MaintenanceEntryDto,
   CreateMaintenanceEntryRequest,
+  MaintenanceTranslationsResponse,
 } from '../types/maintenance';
 
 export interface GetMaintenanceParams {
@@ -35,6 +36,12 @@ export async function getMaintenance(
 
 export async function getMaintenanceById(id: string): Promise<MaintenanceEntryDto> {
   return apiFetch(`${endpoints.maintenance}/${id}`);
+}
+
+export async function getMaintenanceTranslations(
+  id: string
+): Promise<MaintenanceTranslationsResponse> {
+  return apiFetch(`${endpoints.maintenance}/${id}/translations`);
 }
 
 export async function createMaintenance(

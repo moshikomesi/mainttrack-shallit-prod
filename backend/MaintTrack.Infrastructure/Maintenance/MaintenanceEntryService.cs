@@ -5,38 +5,51 @@ using System.Threading;
 using System.Threading.Tasks;
 using MaintTrack.Application.Abstractions;
 using MaintTrack.Application.Maintenance;
+using MaintTrack.Application.Translations;
 using MaintTrack.Domain.Audit;
 using MaintTrack.Domain.Clearance;
 using MaintTrack.Domain.Maintenance;
+using MaintTrack.Domain.Translations;
 using MaintTrack.Domain.Users;
 using MaintTrack.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace MaintTrack.Infrastructure.Maintenance;
 
 public sealed class MaintenanceEntryService : IMaintenanceEntryService
 {
     private const int MaximumAdditionalImages = 2;
+    private const string V1SentinelLfLine = MaintenanceDescriptionText.V1Sentinel + "\n";
+    private const string V2SentinelLfLine = MaintenanceDescriptionText.V2Sentinel + "\n";
+    private const string V1SentinelCrLfLine = MaintenanceDescriptionText.V1Sentinel + "\r\n";
+    private const string V2SentinelCrLfLine = MaintenanceDescriptionText.V2Sentinel + "\r\n";
 
     private readonly MaintTrackDbContext _dbContext;
     private readonly ITenantContext _tenantContext;
     private readonly ICurrentUserContext _currentUserContext;
     private readonly IFileStorageService _fileStorageService;
     private readonly ILogger<MaintenanceEntryService> _logger;
+    private readonly ITranslationRepository? _translations;
+    private readonly bool _enqueueEnabled;
 
     public MaintenanceEntryService(
         MaintTrackDbContext dbContext,
         ITenantContext tenantContext,
         ICurrentUserContext currentUserContext,
         IFileStorageService fileStorageService,
-        ILogger<MaintenanceEntryService> logger)
+        ILogger<MaintenanceEntryService> logger,
+        IOptions<TranslationWorkerOptions>? translationOptions = null,
+        ITranslationRepository? translations = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
         _currentUserContext = currentUserContext ?? throw new ArgumentNullException(nameof(currentUserContext));
         _fileStorageService = fileStorageService ?? throw new ArgumentNullException(nameof(fileStorageService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _translations = translations;
+        _enqueueEnabled = translationOptions?.Value.EnqueueEnabled == true;
     }
 
     public async Task<Guid> CreateAsync(CreateMaintenanceEntryRequest request, CancellationToken ct)
@@ -130,6 +143,20 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
         }, ct);
 
         await _dbContext.SaveChangesAsync(ct);
+
+        try
+        {
+            // The report is committed; a cancelled request must not drop its translation jobs.
+            await EnqueueDescriptionTranslationsAsync(entryId, entry.Description);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Failed to enqueue translations for maintenance entry {MaintenanceEntryId}. The report was saved.",
+                entryId);
+        }
+
         return entryId;
     }
 
@@ -172,8 +199,20 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
             var search = request.Search.Trim();
+            // The sentinel line is a format marker, not report content; match only the text after it.
             query = query.Where(x =>
-                EF.Functions.ILike(x.Entry.Description, $"%{search}%") ||
+                EF.Functions.ILike(
+                    x.Entry.Description == MaintenanceDescriptionText.V1Sentinel
+                        || x.Entry.Description == MaintenanceDescriptionText.V2Sentinel
+                        ? string.Empty
+                        : x.Entry.Description.StartsWith(V1SentinelCrLfLine)
+                            || x.Entry.Description.StartsWith(V2SentinelCrLfLine)
+                            ? x.Entry.Description.Substring(V1SentinelCrLfLine.Length)
+                            : x.Entry.Description.StartsWith(V1SentinelLfLine)
+                                || x.Entry.Description.StartsWith(V2SentinelLfLine)
+                                ? x.Entry.Description.Substring(V1SentinelLfLine.Length)
+                                : x.Entry.Description,
+                    $"%{search}%") ||
                 EF.Functions.ILike(x.Machine.Name, $"%{search}%") ||
                 (x.Type != null && EF.Functions.ILike(x.Type.Code, $"%{search}%")));
         }
@@ -247,6 +286,50 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
             .FirstOrDefaultAsync(ct);
 
         return dto;
+    }
+
+    public async Task<MaintenanceTranslationsResponse?> GetTranslationsAsync(Guid id, CancellationToken ct)
+    {
+        if (_tenantContext.TenantId is null)
+            return null;
+
+        var entry = await GetByIdAsync(id, ct);
+        if (entry is null)
+            return null;
+
+        var parts = MaintenanceDescriptionText.Extract(entry.Description);
+        if (!_enqueueEnabled || _translations is null || !parts.HasTranslatableNarrative)
+            return MaintenanceTranslationsResponse.WithoutRecords(parts.Narrative);
+
+        var rows = await _translations.GetNarrativeTranslationsAsync(
+            id,
+            TranslatableFields.MaintenanceEntry,
+            TranslatableFields.Description,
+            SourceTextHasher.Compute(parts.Narrative),
+            ct);
+
+        return MaintenanceTranslationsResponse.FromRows(parts.Narrative, rows);
+    }
+
+    internal async Task EnqueueDescriptionTranslationsAsync(Guid entryId, string? description)
+    {
+        if (!_enqueueEnabled || _translations is null)
+            return;
+
+        var parts = MaintenanceDescriptionText.Extract(description);
+        if (!parts.HasTranslatableNarrative)
+            return;
+
+        var requests = TranslationLanguages.Supported
+            .Select(language => new EnqueueTranslationRequest(
+                TranslatableFields.MaintenanceEntry,
+                entryId,
+                TranslatableFields.Description,
+                parts.Narrative,
+                language))
+            .ToArray();
+
+        await _translations.EnqueueAllAsync(requests, CancellationToken.None);
     }
 
     /// <summary>

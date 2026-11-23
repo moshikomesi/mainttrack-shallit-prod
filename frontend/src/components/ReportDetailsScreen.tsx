@@ -3,7 +3,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { getMorningRoundById, getMorningRoundTemplate } from '../services/morningRoundsService';
 import { getMorningRoundV2ReportById } from '../services/morningRoundV2Service';
-import { getMaintenanceById } from '../services/maintenanceService';
+import { getMaintenanceById, getMaintenanceTranslations } from '../services/maintenanceService';
 import { getTreatmentById } from '../services/treatmentsService';
 import { getMachines } from '../services/machinesService';
 import { getMaintenanceTypes, type MaintenanceTypeDto } from '../services/maintenanceTypeService';
@@ -34,10 +34,14 @@ import {
   reportDateLocationLabel,
 } from '../utils/reportLocationLabels';
 import { resolveMaintenanceReportArrayLabel } from '../utils/resolveMaintenanceReportArray';
+import {
+  selectNarrativeTranslation,
+  viewMaintenanceDescription,
+} from '../services/maintenanceDescription';
 import { resolveCatalogDisplayValue } from '../utils/resolveCatalogDisplayValue';
 import type { MorningRoundDto, MorningRoundTemplateItemDto } from '../types/morningRound';
 import type { MorningRoundV2Report } from '../types/morningRoundV2Report';
-import type { MaintenanceEntryDto } from '../types/maintenance';
+import type { MaintenanceEntryDto, MaintenanceTranslationsResponse } from '../types/maintenance';
 import type { TreatmentDto } from '../types/treatment';
 import type { MachineDto } from '../services/machinesService';
 import { safeImageSrc } from '../utils/safeUrl';
@@ -175,6 +179,10 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
   const [loadErrorMorningV2, setLoadErrorMorningV2] = useState<string | null>(null);
   const [maintenanceReport, setMaintenanceReport] = useState<MaintenanceEntryDto | null>(null);  const [isLoadingMaintenance, setIsLoadingMaintenance] = useState(false);
   const [loadErrorMaintenance, setLoadErrorMaintenance] = useState<string | null>(null);
+  const [maintenanceTranslations, setMaintenanceTranslations] = useState<{
+    reportId: string;
+    response: MaintenanceTranslationsResponse;
+  } | null>(null);
   const [hierarchy, setHierarchy] = useState<HierarchyArray[]>([]);
   const [treatmentReport, setTreatmentReport] = useState<TreatmentDto | null>(null);
   const [isLoadingTreatment, setIsLoadingTreatment] = useState(false);
@@ -511,18 +519,46 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     );
   }, [hierarchy, treatmentReport?.arrayId, treatmentReport?.machineId, t]);
 
-  const maintenanceV2Parts = useMemo(() => {
+  const maintenanceDescription = useMemo(() => {
     if (maintenanceReport?.maintenanceTypeCode !== 'other') return null;
-    const raw = maintenanceReport?.description ?? '';
-    const parts = raw.split('\n');
-    // First line is the component (catalog key, legacy localized label, or free-text).
-    // Remaining lines are optional fault details — a single-line description is valid
-    // when only a catalog component was stored (no fault text).
-    const component = (parts[0] ?? '').trim();
-    if (!component) return null;
-    const details = parts.slice(1).join('\n').trim();
-    return { component, details };
+    return viewMaintenanceDescription(maintenanceReport.description);
   }, [maintenanceReport?.description, maintenanceReport?.maintenanceTypeCode]);
+
+  // The previous report stays in state until the new one loads; never pair it with the new reportId.
+  const isCurrentMaintenanceReport =
+    maintenanceReport != null && maintenanceReport.id.toLowerCase() === reportId.toLowerCase();
+
+  /** Only marked reports have a translatable narrative; legacy reports are never queued. */
+  const translatableNarrative =
+    isCurrentMaintenanceReport && maintenanceDescription && maintenanceDescription.version !== 'legacy'
+      ? maintenanceDescription.narrative
+      : '';
+
+  useEffect(() => {
+    setMaintenanceTranslations(null);
+    if (reportType !== 'maintenance' || !translatableNarrative) return;
+
+    let cancelled = false;
+    getMaintenanceTranslations(reportId)
+      .then((response) => {
+        if (!cancelled) setMaintenanceTranslations({ reportId, response });
+      })
+      .catch((err) => {
+        // The original narrative stays visible; translations are optional.
+        if (!cancelled) console.error(err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportId, reportType, translatableNarrative]);
+
+  const narrativeTranslation = useMemo(
+    () =>
+      maintenanceTranslations?.reportId === reportId
+        ? selectNarrativeTranslation(maintenanceTranslations.response, translatableNarrative, language)
+        : null,
+    [maintenanceTranslations, reportId, translatableNarrative, language]
+  );
 
   /** At most 1 primary + 2 additional = 3 images total. */
   const maintenanceImages = useMemo(() => {
@@ -844,7 +880,7 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
               <>
                 <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-2">
                   <div className="space-y-1.5 text-sm">
-                    {maintenanceV2Parts ? (
+                    {maintenanceDescription && maintenanceDescription.version !== 'v1' ? (
                       <>
                         <div>
                           <span className="text-neutral-600">{t('reports.maintenanceFilters.array')}: </span>
@@ -861,13 +897,21 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                         <div>
                           <span className="text-neutral-600">{t('reports.maintenanceFilters.component')}: </span>
                           <span className="font-medium text-neutral-900">
-                            {resolveCatalogDisplayValue(maintenanceV2Parts.component, t)}
+                            {resolveCatalogDisplayValue(maintenanceDescription.component ?? '', t)}
                           </span>
                         </div>
-                        {maintenanceV2Parts.details.length > 0 && (
+                        {maintenanceDescription.narrative.length > 0 && (
                           <div>
                             <span className="text-neutral-600">{t('log.fault')}: </span>
-                            <span className="text-neutral-900">{maintenanceV2Parts.details}</span>
+                            <span className="text-neutral-900">{maintenanceDescription.narrative}</span>
+                          </div>
+                        )}
+                        {narrativeTranslation && (
+                          <div>
+                            <span className="text-neutral-600">{t('details.faultTranslation')}: </span>
+                            <span className="text-neutral-900" lang={language}>
+                              {narrativeTranslation}
+                            </span>
                           </div>
                         )}
                       </>
@@ -892,10 +936,25 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                             </span>
                           </div>
                         )}
-                        {(maintenanceReport.description?.trim() ?? '').length > 0 && (
+                        {(maintenanceDescription?.version === 'v1'
+                          ? maintenanceDescription.narrative
+                          : maintenanceReport.description?.trim() ?? ''
+                        ).length > 0 && (
                           <div>
                             <span className="text-neutral-600">{t('log.fault')}: </span>
-                            <span className="text-neutral-900">{maintenanceReport.description}</span>
+                            <span className="text-neutral-900">
+                              {maintenanceDescription?.version === 'v1'
+                                ? maintenanceDescription.narrative
+                                : maintenanceReport.description}
+                            </span>
+                          </div>
+                        )}
+                        {narrativeTranslation && (
+                          <div>
+                            <span className="text-neutral-600">{t('details.faultTranslation')}: </span>
+                            <span className="text-neutral-900" lang={language}>
+                              {narrativeTranslation}
+                            </span>
                           </div>
                         )}
                       </>
