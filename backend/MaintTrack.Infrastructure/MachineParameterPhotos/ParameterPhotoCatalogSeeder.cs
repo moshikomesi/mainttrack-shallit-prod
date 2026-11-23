@@ -25,7 +25,9 @@ public static class ParameterPhotoCatalogSeeder
                 {
                     await RetireSupersededParametersAsync(dbContext, tenantId, ct);
                     await SyncCanonicalSortOrdersAsync(dbContext, tenantId, ct);
-                    return await LinkMatchableUnlinkedPhotosAsync(dbContext, tenantId, ct);
+                    var existingCatalogLink = await LinkMatchableUnlinkedPhotosAsync(dbContext, tenantId, ct);
+                    await LinkCompressorRoomsAsync(dbContext, tenantId, ct);
+                    return existingCatalogLink;
                 }
 
                 await dbContext.SaveChangesAsync(ct);
@@ -51,8 +53,39 @@ public static class ParameterPhotoCatalogSeeder
         // Photos with no such match are left unchanged for an explicit resolution.
         await RetireSupersededParametersAsync(dbContext, tenantId, ct);
         var linked = await LinkMatchableUnlinkedPhotosAsync(dbContext, tenantId, ct);
+        await LinkCompressorRoomsAsync(dbContext, tenantId, ct);
         await SyncCanonicalSortOrdersAsync(dbContext, tenantId, ct);
         return linked;
+    }
+
+    /// <summary>
+    /// The catalog migration already links these photos on a first apply.
+    /// Databases that recorded that migration before this statement existed
+    /// still need it. Rows that already have a parameter are not updated.
+    /// </summary>
+    private static async Task LinkCompressorRoomsAsync(
+        MaintTrackDbContext dbContext,
+        Guid tenantId,
+        CancellationToken ct)
+    {
+        var names = ParameterPhotoLegacyLinker.CompressorRoomsMachineNames;
+        var hasUnlinked = await dbContext.MachineParameterPhotos
+            .IgnoreQueryFilters()
+            .AnyAsync(
+                photo => photo.TenantId == tenantId &&
+                    photo.ParameterId == null &&
+                    photo.MachineId != null &&
+                    dbContext.Machines.IgnoreQueryFilters().Any(machine =>
+                        machine.Id == photo.MachineId &&
+                        machine.TenantId == photo.TenantId &&
+                        names.Contains(machine.Name)),
+                ct);
+        if (!hasUnlinked)
+        {
+            return;
+        }
+
+        await ParameterPhotoLegacyLinker.LinkCompressorRoomsAsync(dbContext, tenantId, ct);
     }
 
     private static async Task<ParameterPhotoLinkResult?> LinkMatchableUnlinkedPhotosAsync(

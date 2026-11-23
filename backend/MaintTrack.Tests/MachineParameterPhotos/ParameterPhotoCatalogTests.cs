@@ -172,6 +172,7 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
         }
 
         Assert.Contains("ParameterPhotoLegacyLinker.MigrationLinkSql", migration, StringComparison.Ordinal);
+        Assert.Contains("ParameterPhotoLegacyLinker.CompressorRoomsLinkSql", migration, StringComparison.Ordinal);
         Assert.Contains("ParameterPhotoRollbackGuard.Sql", migration, StringComparison.Ordinal);
         Assert.DoesNotContain("DELETE FROM machine_parameter_photos", migration, StringComparison.Ordinal);
         Assert.DoesNotContain("maintenance_tasks", migration, StringComparison.Ordinal);
@@ -262,6 +263,175 @@ public sealed class ParameterPhotoCatalogTests : IAsyncDisposable
             parameter.TenantId == _fx.TenantId &&
             parameter.NameKey == ParameterPhotoCatalog.HopperKey);
         Assert.DoesNotContain(photos, photo => photo.ParameterId == hopperParameter.Id);
+    }
+
+    [Fact]
+    public async Task CompressorRoomsLink_ClearsHighSortsOnTheSourceMachines()
+    {
+        await AssertCompressorLinkClearsBothIndexes(
+            otherParameterSort: 120_000,
+            compressorRoomsSort: 80_000);
+    }
+
+    [Fact]
+    public async Task CompressorRoomsLink_ClearsHighSortsAlreadyOnCompressorRooms()
+    {
+        await AssertCompressorLinkClearsBothIndexes(
+            otherParameterSort: 70_000,
+            compressorRoomsSort: 130_000);
+    }
+
+    private async Task AssertCompressorLinkClearsBothIndexes(int otherParameterSort, int compressorRoomsSort)
+    {
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
+        var compressorRooms = await _fx.DbContext.ParameterPhotoParameters.SingleAsync(parameter =>
+            parameter.TenantId == _fx.TenantId &&
+            parameter.NameKey == ParameterPhotoCatalog.CompressorRoomsKey);
+        var otherParameter = await _fx.DbContext.ParameterPhotoParameters.SingleAsync(parameter =>
+            parameter.TenantId == _fx.TenantId &&
+            parameter.NameKey == ParameterPhotoCatalog.ControlRoomAboveCoolingRoomsKey);
+        var array = await _fx.SeedArrayAsync(_fx.TenantId, "array.rooms");
+        var counts = new Dictionary<string, int>
+        {
+            ["machine.rooms.compressor1"] = 9,
+            ["machine.rooms.compressor2"] = 9,
+            ["machine.rooms.compressor3"] = 9,
+            ["machine.rooms.compressor4"] = 9,
+            ["machine.waterCooling.compressor1"] = 1,
+            ["machine.waterCooling.compressor2"] = 1,
+            ["machine.waterCooling.compressor3"] = 1,
+            ["machine.waterCooling.compressor4"] = 1
+        };
+        var originals = new List<(Guid Id, string MachineName, Guid MachineId, int SortOrder, string ImageUrl, Guid CreatedByUserId)>();
+        foreach (var (machineName, photoCount) in counts)
+        {
+            var machine = await _fx.SeedMachineAsync(_fx.TenantId, machineName, machineName, array.Id);
+            for (var index = 0; index < photoCount; index++)
+            {
+                var sortOrder = 25_000 + (index * 1_000);
+                var photo = await _fx.SeedPhotoAsync(
+                    _fx.TenantId,
+                    parameterId: null,
+                    sortOrder,
+                    machine.Id,
+                    imageUrl: $"/uploads/{machineName}-{sortOrder}.jpg");
+                originals.Add((photo.Id, machineName, machine.Id, sortOrder, photo.ImageUrl, photo.CreatedByUserId));
+            }
+        }
+
+        var sourceMachine = await _fx.DbContext.Machines.SingleAsync(machine =>
+            machine.Name == "machine.rooms.compressor1");
+        var linkedElsewhere = await _fx.SeedPhotoAsync(
+            _fx.TenantId,
+            otherParameter.Id,
+            otherParameterSort,
+            sourceMachine.Id,
+            imageUrl: "/uploads/linked-elsewhere.jpg");
+        var compressorRoomsMachine = await _fx.DbContext.Machines.SingleAsync(machine =>
+            machine.Name == "machine.rooms.compressor2");
+        var alreadyOnCompressorRooms = await _fx.SeedPhotoAsync(
+            _fx.TenantId,
+            compressorRooms.Id,
+            compressorRoomsSort,
+            compressorRoomsMachine.Id,
+            imageUrl: "/uploads/already-on-compressor-rooms.jpg");
+        var unrelatedMachine = await _fx.SeedMachineAsync(_fx.TenantId, "machine.rooms.controlRoom", "C1", array.Id);
+        var unrelatedPhoto = await _fx.SeedPhotoAsync(
+            _fx.TenantId,
+            parameterId: null,
+            sortOrder: 77_777,
+            unrelatedMachine.Id,
+            imageUrl: "/uploads/control-room.jpg");
+
+        var floor = new[]
+        {
+            otherParameterSort,
+            compressorRoomsSort,
+            originals.Max(photo => photo.SortOrder)
+        }.Max();
+
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
+        _fx.DbContext.ChangeTracker.Clear();
+
+        var photos = await _fx.DbContext.MachineParameterPhotos.AsNoTracking().ToListAsync();
+        Assert.Equal(43, photos.Count);
+        var linked = originals
+            .Select(original => photos.Single(photo => photo.Id == original.Id))
+            .OrderBy(photo => photo.SortOrder)
+            .ToList();
+        Assert.Equal(40, linked.Count);
+        Assert.All(linked, photo => Assert.Equal(compressorRooms.Id, photo.ParameterId));
+        Assert.Equal(Enumerable.Range(floor + 1, 40), linked.Select(photo => photo.SortOrder));
+        var expectedOrder = originals
+            .OrderBy(photo => photo.MachineName, StringComparer.Ordinal)
+            .ThenBy(photo => photo.SortOrder)
+            .ThenBy(photo => photo.Id)
+            .Select(photo => photo.Id)
+            .ToList();
+        Assert.Equal(expectedOrder, linked.Select(photo => photo.Id));
+        foreach (var original in originals)
+        {
+            var stored = photos.Single(photo => photo.Id == original.Id);
+            Assert.Equal(original.MachineId, stored.MachineId);
+            Assert.Equal(original.ImageUrl, stored.ImageUrl);
+            Assert.Equal(original.CreatedByUserId, stored.CreatedByUserId);
+            Assert.Equal(_fx.TenantId, stored.TenantId);
+        }
+
+        var preservedElsewhere = photos.Single(photo => photo.Id == linkedElsewhere.Id);
+        Assert.Equal(otherParameter.Id, preservedElsewhere.ParameterId);
+        Assert.Equal(otherParameterSort, preservedElsewhere.SortOrder);
+        Assert.Equal("/uploads/linked-elsewhere.jpg", preservedElsewhere.ImageUrl);
+        Assert.Equal(sourceMachine.Id, preservedElsewhere.MachineId);
+
+        var preservedRooms = photos.Single(photo => photo.Id == alreadyOnCompressorRooms.Id);
+        Assert.Equal(compressorRooms.Id, preservedRooms.ParameterId);
+        Assert.Equal(compressorRoomsSort, preservedRooms.SortOrder);
+        Assert.Equal("/uploads/already-on-compressor-rooms.jpg", preservedRooms.ImageUrl);
+        Assert.Equal(compressorRoomsMachine.Id, preservedRooms.MachineId);
+
+        var untouched = photos.Single(photo => photo.Id == unrelatedPhoto.Id);
+        Assert.Null(untouched.ParameterId);
+        Assert.Equal(unrelatedMachine.Id, untouched.MachineId);
+        Assert.Equal("/uploads/control-room.jpg", untouched.ImageUrl);
+        Assert.Equal(77_777, untouched.SortOrder);
+
+        AssertUniquePhotoSortIndexes(photos);
+
+        var firstPass = photos.ToDictionary(
+            photo => photo.Id,
+            photo => (photo.ParameterId, photo.SortOrder, photo.MachineId, photo.ImageUrl, photo.CreatedByUserId, photo.TenantId));
+        await ParameterPhotoCatalogSeeder.EnsureAsync(_fx.DbContext, _fx.TenantId, CancellationToken.None);
+        _fx.DbContext.ChangeTracker.Clear();
+        var secondPass = await _fx.DbContext.MachineParameterPhotos.AsNoTracking().ToListAsync();
+        Assert.Equal(firstPass.Count, secondPass.Count);
+        foreach (var photo in secondPass)
+        {
+            var before = firstPass[photo.Id];
+            Assert.Equal(before.ParameterId, photo.ParameterId);
+            Assert.Equal(before.SortOrder, photo.SortOrder);
+            Assert.Equal(before.MachineId, photo.MachineId);
+            Assert.Equal(before.ImageUrl, photo.ImageUrl);
+            Assert.Equal(before.CreatedByUserId, photo.CreatedByUserId);
+            Assert.Equal(before.TenantId, photo.TenantId);
+        }
+
+        AssertUniquePhotoSortIndexes(secondPass);
+    }
+
+    private static void AssertUniquePhotoSortIndexes(IReadOnlyCollection<MachineParameterPhoto> photos)
+    {
+        var parameterSorts = photos
+            .Where(photo => photo.ParameterId is not null)
+            .Select(photo => (photo.ParameterId, photo.SortOrder))
+            .ToList();
+        Assert.Equal(parameterSorts.Count, parameterSorts.Distinct().Count());
+
+        var machineSorts = photos
+            .Where(photo => photo.MachineId is not null)
+            .Select(photo => (photo.MachineId, photo.SortOrder))
+            .ToList();
+        Assert.Equal(machineSorts.Count, machineSorts.Distinct().Count());
     }
 
     private static string FindMigrationFile()

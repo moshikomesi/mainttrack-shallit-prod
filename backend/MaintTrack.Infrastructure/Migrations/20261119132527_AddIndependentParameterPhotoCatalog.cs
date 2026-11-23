@@ -211,6 +211,7 @@ namespace MaintTrack.Infrastructure.Migrations
                 """);
 
             migrationBuilder.Sql(ParameterPhotoLegacyLinker.MigrationLinkSql);
+            migrationBuilder.Sql(ParameterPhotoLegacyLinker.CompressorRoomsLinkSql);
         }
 
         /// <inheritdoc />
