@@ -14,8 +14,8 @@ public static class MachineParameterPhotoEndpoints
             {
                 try
                 {
-                    var hierarchy = await photoService.GetHierarchyAsync(cancellationToken);
-                    return Results.Ok(hierarchy);
+                    var catalog = await photoService.GetCatalogAsync(cancellationToken);
+                    return Results.Ok(catalog);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -28,23 +28,23 @@ public static class MachineParameterPhotoEndpoints
             .WithOpenApi();
 
         app.MapGet("/api/v1/machine-parameter-photos", async (
-                Guid? machineId,
+                Guid? parameterId,
                 IMachineParameterPhotoService photoService,
                 CancellationToken cancellationToken) =>
             {
-                if (machineId is null || machineId == Guid.Empty)
+                if (parameterId is null || parameterId == Guid.Empty)
                 {
-                    return Results.BadRequest(new { error = "machineId is required." });
+                    return Results.BadRequest(new { error = "parameterId is required." });
                 }
 
                 try
                 {
-                    var photos = await photoService.GetByMachineIdAsync(machineId.Value, cancellationToken);
+                    var photos = await photoService.GetByParameterIdAsync(parameterId.Value, cancellationToken);
                     return Results.Ok(photos);
                 }
                 catch (InvalidOperationException ex)
                 {
-                    // Covers inaccessible / cross-tenant / hidden / inactive / unassigned machines.
+                    // Covers inaccessible, cross-tenant, and inactive parameters.
                     return Results.BadRequest(new { error = ex.Message });
                 }
             })
@@ -60,8 +60,8 @@ public static class MachineParameterPhotoEndpoints
             {
                 try
                 {
-                    var (machineId, files) = await ReadUploadRequestAsync(httpRequest, cancellationToken);
-                    var photos = await photoService.UploadAsync(machineId, files, cancellationToken);
+                    var (parameterId, files) = await ReadUploadRequestAsync(httpRequest, cancellationToken);
+                    var photos = await photoService.UploadAsync(parameterId, files, cancellationToken);
                     return Results.Created("/api/v1/machine-parameter-photos", photos);
                 }
                 catch (UnauthorizedAccessException)
@@ -71,7 +71,7 @@ public static class MachineParameterPhotoEndpoints
                 catch (InvalidOperationException ex)
                 {
                     // Multipart/request parsing + service validation/access failures
-                    // (empty/unsupported/oversized/too many files, inaccessible machines, etc.).
+                    // (empty/unsupported/oversized/too many files, inaccessible parameters, etc.).
                     return Results.BadRequest(new { error = ex.Message });
                 }
             })
@@ -79,6 +79,86 @@ public static class MachineParameterPhotoEndpoints
             .RequireAuthorization()
             .DisableAntiforgery()
             .WithName("UploadMachineParameterPhotos")
+            .WithOpenApi();
+
+        app.MapGet("/api/v1/machine-parameter-photos/legacy", async (
+                IMachineParameterPhotoService photoService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var photos = await photoService.GetLegacyPhotosAsync(cancellationToken);
+                    return Results.Ok(photos);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return Results.Forbid();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+            })
+            .RequireRateLimiting("api")
+            .RequireAuthorization()
+            .WithName("GetLegacyMachineParameterPhotos")
+            .WithOpenApi();
+
+        app.MapPost("/api/v1/machine-parameter-photos/legacy/{id:guid}/assign", async (
+                Guid id,
+                LegacyParameterPhotoAssignmentRequest request,
+                IMachineParameterPhotoService photoService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var photo = await photoService.AssignLegacyPhotoAsync(id, request.ParameterId, cancellationToken);
+                    return Results.Ok(photo);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return Results.Forbid();
+                }
+                catch (KeyNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+            })
+            .RequireRateLimiting("api")
+            .RequireAuthorization()
+            .WithName("AssignLegacyMachineParameterPhoto")
+            .WithOpenApi();
+
+        app.MapDelete("/api/v1/machine-parameter-photos/legacy/{id:guid}", async (
+                Guid id,
+                IMachineParameterPhotoService photoService,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    await photoService.DeleteLegacyPhotoAsync(id, cancellationToken);
+                    return Results.NoContent();
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return Results.Forbid();
+                }
+                catch (KeyNotFoundException)
+                {
+                    return Results.NotFound();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
+            })
+            .RequireRateLimiting("api")
+            .RequireAuthorization()
+            .WithName("DeleteLegacyMachineParameterPhoto")
             .WithOpenApi();
 
         app.MapDelete("/api/v1/machine-parameter-photos/{id:guid}", async (
@@ -112,7 +192,7 @@ public static class MachineParameterPhotoEndpoints
         return app;
     }
 
-    private static async Task<(Guid MachineId, IReadOnlyList<MachineParameterPhotoUploadFile> Files)> ReadUploadRequestAsync(
+    private static async Task<(Guid ParameterId, IReadOnlyList<MachineParameterPhotoUploadFile> Files)> ReadUploadRequestAsync(
         HttpRequest httpRequest,
         CancellationToken cancellationToken)
     {
@@ -122,11 +202,11 @@ public static class MachineParameterPhotoEndpoints
         }
 
         var form = await httpRequest.ReadFormAsync(cancellationToken);
-        var machineIdValue = form["machineId"].ToString();
-        if (string.IsNullOrWhiteSpace(machineIdValue) || !Guid.TryParse(machineIdValue, out var machineId) ||
-            machineId == Guid.Empty)
+        var parameterIdValue = form["parameterId"].ToString();
+        if (string.IsNullOrWhiteSpace(parameterIdValue) || !Guid.TryParse(parameterIdValue, out var parameterId) ||
+            parameterId == Guid.Empty)
         {
-            throw new InvalidOperationException("machineId is required.");
+            throw new InvalidOperationException("parameterId is required.");
         }
 
         var files = form.Files
@@ -138,6 +218,8 @@ public static class MachineParameterPhotoEndpoints
                 file.Length))
             .ToList();
 
-        return (machineId, files);
+        return (parameterId, files);
     }
 }
+
+public sealed record LegacyParameterPhotoAssignmentRequest(Guid ParameterId);

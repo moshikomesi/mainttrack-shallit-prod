@@ -1,6 +1,7 @@
 import { apiFetch } from '../api/apiClient';
 import { endpoints } from '../api/endpoints';
 import type {
+  LegacyParameterPhoto,
   MachineParameterPhoto,
   MachineParameterPhotosHierarchy,
 } from '../types/machineParameterPhotos';
@@ -10,18 +11,18 @@ export async function getMachineParameterPhotosHierarchy(): Promise<MachineParam
 }
 
 export async function getMachineParameterPhotos(
-  machineId: string
+  parameterId: string
 ): Promise<MachineParameterPhoto[]> {
-  const params = new URLSearchParams({ machineId });
+  const params = new URLSearchParams({ parameterId });
   return apiFetch<MachineParameterPhoto[]>(`${endpoints.machineParameterPhotos}?${params.toString()}`);
 }
 
 export async function uploadMachineParameterPhotos(
-  machineId: string,
+  parameterId: string,
   files: File[]
 ): Promise<MachineParameterPhoto[]> {
   const formData = new FormData();
-  formData.append('machineId', machineId);
+  formData.append('parameterId', parameterId);
   files.forEach((file) => {
     formData.append('files', file);
   });
@@ -34,6 +35,26 @@ export async function uploadMachineParameterPhotos(
 
 export async function deleteMachineParameterPhoto(photoId: string): Promise<void> {
   return apiFetch<void>(endpoints.machineParameterPhoto(photoId), {
+    method: 'DELETE',
+  });
+}
+
+export async function getLegacyMachineParameterPhotos(): Promise<LegacyParameterPhoto[]> {
+  return apiFetch<LegacyParameterPhoto[]>(endpoints.legacyMachineParameterPhotos);
+}
+
+export async function assignLegacyMachineParameterPhoto(
+  photoId: string,
+  parameterId: string
+): Promise<MachineParameterPhoto> {
+  return apiFetch<MachineParameterPhoto>(endpoints.assignLegacyMachineParameterPhoto(photoId), {
+    method: 'POST',
+    body: JSON.stringify({ parameterId }),
+  });
+}
+
+export async function deleteLegacyMachineParameterPhoto(photoId: string): Promise<void> {
+  return apiFetch<void>(endpoints.deleteLegacyMachineParameterPhoto(photoId), {
     method: 'DELETE',
   });
 }

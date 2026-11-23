@@ -117,6 +117,74 @@ public sealed class MachineParameterPhotoSchemaTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ParameterPhotoGroup_IsTenantIsolated()
+    {
+        _dbContext.ParameterPhotoGroups.AddRange(
+            CreateGroup(_tenantId, "parameter.mine"),
+            CreateGroup(_otherTenantId, "parameter.other"));
+        await _dbContext.SaveChangesAsync();
+
+        var visible = await _dbContext.ParameterPhotoGroups.AsNoTracking().ToListAsync();
+
+        Assert.Single(visible);
+        Assert.Equal(_tenantId, visible[0].TenantId);
+    }
+
+    [Fact]
+    public async Task ParameterPhotoParameter_IsTenantIsolated()
+    {
+        var group = CreateGroup(_tenantId, "parameter.mine");
+        var otherGroup = CreateGroup(_otherTenantId, "parameter.other");
+        _dbContext.ParameterPhotoGroups.AddRange(group, otherGroup);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.ParameterPhotoParameters.AddRange(
+            CreateParameter(_tenantId, group.Id, "parameter.mine.item"),
+            CreateParameter(_otherTenantId, otherGroup.Id, "parameter.other.item"));
+        await _dbContext.SaveChangesAsync();
+
+        var visible = await _dbContext.ParameterPhotoParameters.AsNoTracking().ToListAsync();
+
+        Assert.Single(visible);
+        Assert.Equal(_tenantId, visible[0].TenantId);
+        Assert.Equal(group.Id, visible[0].GroupId);
+    }
+
+    [Fact]
+    public async Task MachineParameterPhoto_AllowsParameterWithoutMachine()
+    {
+        var group = CreateGroup(_tenantId, "parameter.group");
+        _dbContext.ParameterPhotoGroups.Add(group);
+        await _dbContext.SaveChangesAsync();
+        var parameter = CreateParameter(_tenantId, group.Id, "parameter.item");
+        _dbContext.ParameterPhotoParameters.Add(parameter);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, machineId: null, sortOrder: 1, parameter.Id));
+        await _dbContext.SaveChangesAsync();
+
+        var photo = await _dbContext.MachineParameterPhotos.AsNoTracking().SingleAsync();
+        Assert.Null(photo.MachineId);
+        Assert.Equal(parameter.Id, photo.ParameterId);
+    }
+
+    [Fact]
+    public async Task MachineParameterPhoto_RejectsPhotoWithNoAssociation()
+    {
+        _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, machineId: null, sortOrder: 1, parameterId: null));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task MachineParameterPhoto_RequiresExistingParameter()
+    {
+        _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, machineId: null, sortOrder: 1, Guid.NewGuid()));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
     public async Task MachineParameterPhoto_RequiresExistingMachine()
     {
         _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, Guid.NewGuid(), 1));
@@ -159,6 +227,78 @@ public sealed class MachineParameterPhotoSchemaTests : IAsyncDisposable
         await _dbContext.SaveChangesAsync();
 
         _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, machine.Id, 1));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task MachineParameterPhoto_AllowsUniqueSortOrderPerParameter()
+    {
+        var group = CreateGroup(_tenantId, "parameter.sort");
+        _dbContext.ParameterPhotoGroups.Add(group);
+        await _dbContext.SaveChangesAsync();
+        var parameter = CreateParameter(_tenantId, group.Id, "parameter.sort.item");
+        _dbContext.ParameterPhotoParameters.Add(parameter);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, machineId: null, sortOrder: 1, parameter.Id));
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, machineId: null, sortOrder: 1, parameter.Id));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Parameter_RejectsGroupFromAnotherTenant()
+    {
+        var otherGroup = CreateGroup(_otherTenantId, "parameter.other-group");
+        _dbContext.ParameterPhotoGroups.Add(otherGroup);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.ParameterPhotoParameters.Add(CreateParameter(_tenantId, otherGroup.Id, "parameter.cross-group"));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task MachineParameterPhoto_RejectsParameterFromAnotherTenant()
+    {
+        var otherGroup = CreateGroup(_otherTenantId, "parameter.other-group");
+        _dbContext.ParameterPhotoGroups.Add(otherGroup);
+        await _dbContext.SaveChangesAsync();
+        var otherParameter = CreateParameter(_otherTenantId, otherGroup.Id, "parameter.other-item");
+        _dbContext.ParameterPhotoParameters.Add(otherParameter);
+        await _dbContext.SaveChangesAsync();
+
+        _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, machineId: null, sortOrder: 1, otherParameter.Id));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
+        Assert.Empty(await _dbContext.MachineParameterPhotos.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task MachineParameterPhoto_RestrictsParameterDelete()
+    {
+        var group = CreateGroup(_tenantId, "parameter.protected");
+        _dbContext.ParameterPhotoGroups.Add(group);
+        await _dbContext.SaveChangesAsync();
+        var parameter = CreateParameter(_tenantId, group.Id, "parameter.protected.item");
+        _dbContext.ParameterPhotoParameters.Add(parameter);
+        await _dbContext.SaveChangesAsync();
+        _dbContext.MachineParameterPhotos.Add(CreatePhoto(_tenantId, machineId: null, sortOrder: 1, parameter.Id));
+        await _dbContext.SaveChangesAsync();
+        _dbContext.ChangeTracker.Clear();
+
+        var deleteBehavior = _dbContext.Model
+            .FindEntityType(typeof(MachineParameterPhoto))!
+            .GetForeignKeys()
+            .Single(fk => fk.Properties.Any(property => property.Name == nameof(MachineParameterPhoto.ParameterId)))
+            .DeleteBehavior;
+        Assert.Equal(DeleteBehavior.Restrict, deleteBehavior);
+
+        var tracked = await _dbContext.ParameterPhotoParameters.SingleAsync(item => item.Id == parameter.Id);
+        _dbContext.ParameterPhotoParameters.Remove(tracked);
 
         await Assert.ThrowsAsync<DbUpdateException>(() => _dbContext.SaveChangesAsync());
     }
@@ -360,12 +500,40 @@ public sealed class MachineParameterPhotoSchemaTests : IAsyncDisposable
             CreatedAt = DateTime.UtcNow
         };
 
-    private static MachineParameterPhoto CreatePhoto(Guid tenantId, Guid machineId, int sortOrder) =>
+    private static ParameterPhotoGroup CreateGroup(Guid tenantId, string nameKey) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            NameKey = nameKey,
+            SortOrder = 1,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+    private static ParameterPhotoParameter CreateParameter(Guid tenantId, Guid groupId, string nameKey) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            GroupId = groupId,
+            NameKey = nameKey,
+            SortOrder = 1,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+    private static MachineParameterPhoto CreatePhoto(
+        Guid tenantId,
+        Guid? machineId,
+        int sortOrder,
+        Guid? parameterId = null) =>
         new()
         {
             Id = Guid.NewGuid(),
             TenantId = tenantId,
             MachineId = machineId,
+            ParameterId = parameterId,
             ImageUrl = $"/uploads/{tenantId}/{Guid.NewGuid():N}.jpg",
             SortOrder = sortOrder,
             CreatedByUserId = Guid.NewGuid(),

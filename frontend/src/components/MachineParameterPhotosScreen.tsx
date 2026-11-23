@@ -10,14 +10,19 @@ import {
   validateMaintenanceImageFile,
 } from '../services/uploadService';
 import {
+  assignLegacyMachineParameterPhoto,
+  deleteLegacyMachineParameterPhoto,
   deleteMachineParameterPhoto,
+  getLegacyMachineParameterPhotos,
   getMachineParameterPhotos,
   getMachineParameterPhotosHierarchy,
   uploadMachineParameterPhotos,
 } from '../services/machineParameterPhotosService';
-import type { HierarchyArray } from '../services/hierarchyService';
-import type { MachineParameterPhoto } from '../types/machineParameterPhotos';
-import { resolveCatalogDisplayValue } from '../utils/resolveCatalogDisplayValue';
+import type {
+  LegacyParameterPhoto,
+  MachineParameterPhoto,
+  ParameterPhotoGroup,
+} from '../types/machineParameterPhotos';
 import { safeImageSrc } from '../utils/safeUrl';
 
 const MAXIMUM_FILES_PER_REQUEST = 10;
@@ -200,13 +205,14 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
   const viewerTouchStartXRef = useRef<number | null>(null);
   const viewerDidSwipeRef = useRef(false);
 
-  const [hierarchy, setHierarchy] = useState<HierarchyArray[]>([]);
+  const [groups, setGroups] = useState<ParameterPhotoGroup[]>([]);
   const [canManage, setCanManage] = useState(false);
+  const [unresolvedPhotoCount, setUnresolvedPhotoCount] = useState(0);
   const [loadingHierarchy, setLoadingHierarchy] = useState(false);
   const [hierarchyError, setHierarchyError] = useState<string | null>(null);
 
-  const [selectedArrayId, setSelectedArrayId] = useState('');
-  const [selectedMachineId, setSelectedMachineId] = useState('');
+  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [selectedParameterId, setSelectedParameterId] = useState('');
 
   const [photos, setPhotos] = useState<MachineParameterPhoto[]>([]);
   const [loadingPhotos, setLoadingPhotos] = useState(false);
@@ -218,12 +224,15 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
 
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [viewerImageIndex, setViewerImageIndex] = useState<number | null>(null);
+  const [legacyPhotos, setLegacyPhotos] = useState<LegacyParameterPhoto[]>([]);
+  const [legacyTargets, setLegacyTargets] = useState<Record<string, string>>({});
+  const [legacyBusyId, setLegacyBusyId] = useState<string | null>(null);
 
-  const machinesForArray = useMemo(() => {
-    if (!selectedArrayId) return [];
-    const array = hierarchy.find((item) => item.arrayId === selectedArrayId);
-    return array?.machines ?? [];
-  }, [hierarchy, selectedArrayId]);
+  const parametersForGroup = useMemo(() => {
+    if (!selectedGroupId) return [];
+    const group = groups.find((item) => item.id === selectedGroupId);
+    return group?.parameters ?? [];
+  }, [groups, selectedGroupId]);
 
   const photoSources = useMemo(
     () =>
@@ -274,33 +283,53 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
     [photoSources.length]
   );
 
+  const loadLegacyPhotos = useCallback(async () => {
+    try {
+      const result = await getLegacyMachineParameterPhotos();
+      if (!mountedRef.current) return;
+      setLegacyPhotos(Array.isArray(result) ? result : []);
+    } catch (err) {
+      console.error(err);
+      if (!mountedRef.current) return;
+      setLegacyPhotos([]);
+    }
+  }, []);
+
   const loadHierarchy = useCallback(async () => {
     try {
       setLoadingHierarchy(true);
       setHierarchyError(null);
       const result = await getMachineParameterPhotosHierarchy();
       if (!mountedRef.current) return;
-      setHierarchy(Array.isArray(result.arrays) ? result.arrays : []);
+      setGroups(Array.isArray(result.groups) ? result.groups : []);
       setCanManage(result.canManage === true);
+      const unresolvedCount = result.unresolvedPhotoCount ?? 0;
+      setUnresolvedPhotoCount(unresolvedCount);
+      if (result.canManage === true && unresolvedCount > 0) {
+        await loadLegacyPhotos();
+      } else if (mountedRef.current) {
+        setLegacyPhotos([]);
+      }
     } catch (err) {
       console.error(err);
       if (!mountedRef.current) return;
-      setHierarchy([]);
+      setGroups([]);
       setCanManage(false);
+      setUnresolvedPhotoCount(0);
       setHierarchyError(t('common.failedToLoad'));
     } finally {
       if (mountedRef.current) {
         setLoadingHierarchy(false);
       }
     }
-  }, [t]);
+  }, [loadLegacyPhotos, t]);
 
   const loadPhotos = useCallback(
-    async (machineId: string, options?: { focusIndex?: number }) => {
+    async (parameterId: string, options?: { focusIndex?: number }) => {
       try {
         setLoadingPhotos(true);
         setPhotosError(null);
-        const result = await getMachineParameterPhotos(machineId);
+        const result = await getMachineParameterPhotos(parameterId);
         if (!mountedRef.current) return;
         const nextPhotos = Array.isArray(result) ? result : [];
         setPhotos(nextPhotos);
@@ -343,7 +372,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
     viewerTouchStartXRef.current = null;
     viewerDidSwipeRef.current = false;
 
-    if (!selectedMachineId) {
+    if (!selectedParameterId) {
       setPhotos([]);
       setPhotosError(null);
       setLoadingPhotos(false);
@@ -351,8 +380,8 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
       return;
     }
 
-    void loadPhotos(selectedMachineId);
-  }, [loadPhotos, selectedMachineId]);
+    void loadPhotos(selectedParameterId);
+  }, [loadPhotos, selectedParameterId]);
 
   useEffect(() => {
     if (carouselIndex < photoSources.length) return;
@@ -396,9 +425,64 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
     };
   }, [stepViewer, viewerImageIndex]);
 
-  const handleArrayChange = (arrayId: string) => {
-    setSelectedArrayId(arrayId);
-    setSelectedMachineId('');
+  const assignableParameters = useMemo(
+    () =>
+      groups.flatMap((group) =>
+        group.parameters.map((parameter) => ({
+          id: parameter.id,
+          label: `${t(group.nameKey)} — ${t(parameter.nameKey)}`,
+        }))
+      ),
+    [groups, t]
+  );
+
+  const handleLegacyAssign = async (photoId: string) => {
+    const parameterId = legacyTargets[photoId];
+    if (!canManage || !parameterId || legacyBusyId) return;
+    setLegacyBusyId(photoId);
+    try {
+      await assignLegacyMachineParameterPhoto(photoId, parameterId);
+      if (!mountedRef.current) return;
+      toast.success(t('machineParameterPhotos.legacyAssigned'));
+      await loadHierarchy();
+      if (selectedParameterId === parameterId) {
+        await loadPhotos(parameterId);
+      }
+    } catch (err) {
+      console.error(err);
+      if (mountedRef.current) {
+        toast.error(t('machineParameterPhotos.legacyFailed'));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLegacyBusyId(null);
+      }
+    }
+  };
+
+  const handleLegacyDelete = async (photoId: string) => {
+    if (!canManage || legacyBusyId) return;
+    setLegacyBusyId(photoId);
+    try {
+      await deleteLegacyMachineParameterPhoto(photoId);
+      if (!mountedRef.current) return;
+      toast.success(t('machineParameterPhotos.deleteSuccess'));
+      await loadHierarchy();
+    } catch (err) {
+      console.error(err);
+      if (mountedRef.current) {
+        toast.error(t('machineParameterPhotos.legacyFailed'));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLegacyBusyId(null);
+      }
+    }
+  };
+
+  const handleGroupChange = (groupId: string) => {
+    setSelectedGroupId(groupId);
+    setSelectedParameterId('');
     setPhotos([]);
     setPhotosError(null);
     setCarouselIndex(0);
@@ -406,8 +490,8 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
     setViewerImageIndex(null);
   };
 
-  const handleMachineChange = (machineId: string) => {
-    setSelectedMachineId(machineId);
+  const handleParameterChange = (parameterId: string) => {
+    setSelectedParameterId(parameterId);
     setConfirmDelete(false);
   };
 
@@ -442,7 +526,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
   };
 
   const handleFilesSelected = async (fileList: FileList | null) => {
-    if (!canManage || !selectedMachineId || uploadingRef.current) return;
+    if (!canManage || !selectedParameterId || uploadingRef.current) return;
     const files = validateSelectedFiles(Array.from(fileList ?? []));
     if (!files) return;
 
@@ -450,10 +534,10 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
     setUploading(true);
     try {
       const previousCount = photos.length;
-      await uploadMachineParameterPhotos(selectedMachineId, files);
+      await uploadMachineParameterPhotos(selectedParameterId, files);
       if (!mountedRef.current) return;
       toast.success(t('machineParameterPhotos.uploadSuccess'));
-      await loadPhotos(selectedMachineId, { focusIndex: previousCount });
+      await loadPhotos(selectedParameterId, { focusIndex: previousCount });
     } catch (err) {
       console.error(err);
       if (mountedRef.current) {
@@ -484,7 +568,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
       toast.success(t('machineParameterPhotos.deleteSuccess'));
       setConfirmDelete(false);
       const nextIndex = Math.max(carouselIndex - (carouselIndex >= photoSources.length - 1 ? 1 : 0), 0);
-      await loadPhotos(selectedMachineId, { focusIndex: nextIndex });
+      await loadPhotos(selectedParameterId, { focusIndex: nextIndex });
     } catch (err) {
       console.error(err);
       if (mountedRef.current) {
@@ -522,52 +606,118 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
         <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-3">
           <div>
             <label className="block text-xs font-medium text-neutral-600 mb-1">
-              {t('maintenanceLogV2.selectArray')}
+              {t('machineParameterPhotos.selectGroup')}
             </label>
             <select
-              value={selectedArrayId}
+              value={selectedGroupId}
               disabled={loadingHierarchy || Boolean(hierarchyError)}
-              onChange={(event) => handleArrayChange(event.target.value)}
+              onChange={(event) => handleGroupChange(event.target.value)}
               className="w-full px-3 py-2 bg-white border border-neutral-300 rounded text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800"
             >
-              <option value="">{t('maintenanceLogV2.selectArray')}</option>
+              <option value="">{t('machineParameterPhotos.selectGroup')}</option>
               {loadingHierarchy && (
                 <option value="" disabled>
                   {t('common.loading')}
                 </option>
               )}
               {!loadingHierarchy &&
-                hierarchy.map((array) =>
-                  array.arrayId ? (
-                    <option key={array.arrayId} value={array.arrayId}>
-                      {t(array.nameKey)}
-                    </option>
-                  ) : null
-                )}
+                groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {t(group.nameKey)}
+                  </option>
+                ))}
             </select>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-neutral-600 mb-1">
-              {t('machine.select')}
+              {t('machineParameterPhotos.selectParameter')}
             </label>
             <select
-              value={selectedMachineId}
-              disabled={!selectedArrayId || uploading}
-              onChange={(event) => handleMachineChange(event.target.value)}
+              value={selectedParameterId}
+              disabled={!selectedGroupId || uploading}
+              onChange={(event) => handleParameterChange(event.target.value)}
               className="w-full px-3 py-2 bg-white border border-neutral-300 rounded text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-800 disabled:bg-neutral-100 disabled:text-neutral-400"
             >
-              <option value="">{t('machine.select')}</option>
-              {machinesForArray.map((machine) => (
-                <option key={machine.id} value={machine.id}>
-                  {resolveCatalogDisplayValue(machine.name, t)}
+              <option value="">{t('machineParameterPhotos.selectParameter')}</option>
+              {parametersForGroup.map((parameter) => (
+                <option key={parameter.id} value={parameter.id}>
+                  {t(parameter.nameKey)}
                 </option>
               ))}
             </select>
           </div>
         </div>
 
-        {selectedMachineId && (
+        {unresolvedPhotoCount > 0 && (
+          <section className="bg-white border border-amber-300 rounded-lg p-4 space-y-3">
+            <h2 className="text-sm font-semibold text-neutral-800">
+              {t('machineParameterPhotos.legacyTitle')}
+            </h2>
+            <p className="text-sm text-neutral-700">
+              {canManage
+                ? t('machineParameterPhotos.legacyNeedsChoice')
+                : t('machineParameterPhotos.legacyNeedsManager')}
+            </p>
+            {canManage &&
+              legacyPhotos.map((photo) => {
+                const src = safeImageSrc(photo.imageUrl);
+                const machineLabel = photo.machineName ? t(photo.machineName) : photo.machineId;
+                return (
+                  <article key={photo.id} className="border border-neutral-200 rounded-lg p-3 space-y-2">
+                    <p className="text-sm font-medium text-neutral-800">
+                      {machineLabel}
+                      {photo.machineCode ? ` (${photo.machineCode})` : ''}
+                    </p>
+                    {src && (
+                      <img
+                        src={src}
+                        alt={machineLabel}
+                        className="max-h-40 w-full rounded object-contain bg-neutral-100"
+                      />
+                    )}
+                    <label className="block text-xs font-medium text-neutral-600">
+                      {t('machineParameterPhotos.legacyAssign')}
+                      <select
+                        className="mt-1 w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm"
+                        value={legacyTargets[photo.id] ?? ''}
+                        onChange={(event) =>
+                          setLegacyTargets((current) => ({ ...current, [photo.id]: event.target.value }))
+                        }
+                      >
+                        <option value="">{t('machineParameterPhotos.legacyChooseParameter')}</option>
+                        {assignableParameters.map((parameter) => (
+                          <option key={parameter.id} value={parameter.id}>
+                            {parameter.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="px-3 py-2 bg-neutral-800 text-white text-sm rounded-lg disabled:opacity-50"
+                        disabled={!legacyTargets[photo.id] || legacyBusyId === photo.id}
+                        onClick={() => void handleLegacyAssign(photo.id)}
+                      >
+                        {t('machineParameterPhotos.legacyAssign')}
+                      </button>
+                      <button
+                        type="button"
+                        className="px-3 py-2 border border-red-300 text-red-700 text-sm rounded-lg disabled:opacity-50"
+                        disabled={legacyBusyId === photo.id}
+                        onClick={() => void handleLegacyDelete(photo.id)}
+                      >
+                        {t('machineParameterPhotos.deletePhoto')}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+          </section>
+        )}
+
+        {selectedParameterId && (
           <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-3">
             {loadingPhotos && (
               <div className="flex items-center justify-center gap-2 py-8 text-sm text-neutral-500" role="status">
@@ -581,7 +731,7 @@ export function MachineParameterPhotosScreen({ onBack }: MachineParameterPhotosS
                 <p className="text-sm text-neutral-600 text-center">{photosError}</p>
                 <button
                   type="button"
-                  onClick={() => void loadPhotos(selectedMachineId)}
+                  onClick={() => void loadPhotos(selectedParameterId)}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-800 text-white text-sm font-medium rounded-lg hover:bg-neutral-900 active:bg-neutral-950 transition-colors"
                 >
                   <RefreshCw className="w-4 h-4" />

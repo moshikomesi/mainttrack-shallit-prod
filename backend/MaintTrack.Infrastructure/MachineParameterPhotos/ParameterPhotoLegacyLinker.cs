@@ -1,0 +1,261 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using MaintTrack.Domain.MachineParameterPhotos;
+using MaintTrack.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace MaintTrack.Infrastructure.MachineParameterPhotos;
+
+public sealed record ParameterPhotoLinkResult(
+    int LinkedCount,
+    IReadOnlyList<string> AmbiguousMachineNames);
+
+/// <summary>
+/// Links a legacy photo to a catalog parameter only when one machine in the
+/// same tenant has a name equal to the parameter name key. Image URLs,
+/// machine ids, and existing parameter ids are left unchanged. First Hopper,
+/// Second Hopper, and the Onion System Hopper are never linked, and nothing
+/// is linked automatically to the standalone Hopper parameter.
+/// </summary>
+public static class ParameterPhotoLegacyLinker
+{
+    public static readonly IReadOnlySet<string> DeniedMachineNames = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "machine.largeHopper",
+        "machine.smallHopper",
+        "machine.onion.hopper"
+    };
+
+    /// <summary>
+    /// Legacy compressor machines whose photos belong on the single
+    /// Compressor Rooms catalog parameter. Their names do not equal that
+    /// parameter key, so the one-to-one name rule does not link them.
+    /// </summary>
+    public static readonly string[] CompressorRoomsMachineNames =
+    [
+        "machine.rooms.compressor1",
+        "machine.rooms.compressor2",
+        "machine.rooms.compressor3",
+        "machine.rooms.compressor4",
+        "machine.waterCooling.compressor1",
+        "machine.waterCooling.compressor2",
+        "machine.waterCooling.compressor3",
+        "machine.waterCooling.compressor4"
+    ];
+
+    public const string AmbiguousNamesMessage =
+        "Legacy Parameter Photos linking left some photos unlinked for tenant {TenantId} because these machine names are duplicated. Photos whose machine name is unique in the tenant were still linked: {MachineNames}";
+
+    private static readonly ConcurrentDictionary<string, byte> ReportedAmbiguousNames = new();
+
+    private const string AssignmentAndGuards =
+        """
+        SET parameter_id = (
+            SELECT parameter.id
+            FROM parameter_photo_parameters AS parameter
+            INNER JOIN machines AS machine
+                ON machine.id = machine_parameter_photos.machine_id
+               AND machine.tenant_id = parameter.tenant_id
+               AND machine.name = parameter.name_key
+            WHERE parameter.tenant_id = machine_parameter_photos.tenant_id
+              AND parameter.name_key <> 'parameterPhoto.parameter.hopper'
+              AND machine.name NOT IN ('machine.largeHopper', 'machine.smallHopper', 'machine.onion.hopper')
+              AND (
+                  SELECT COUNT(*)
+                  FROM machines AS named
+                  WHERE named.tenant_id = machine.tenant_id
+                    AND named.name = machine.name
+              ) = 1
+            LIMIT 1
+        )
+        WHERE parameter_id IS NULL
+          AND machine_id IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM parameter_photo_parameters AS parameter
+              INNER JOIN machines AS machine
+                  ON machine.id = machine_parameter_photos.machine_id
+                 AND machine.tenant_id = parameter.tenant_id
+                 AND machine.name = parameter.name_key
+              WHERE parameter.tenant_id = machine_parameter_photos.tenant_id
+                AND parameter.name_key <> 'parameterPhoto.parameter.hopper'
+                AND machine.name NOT IN ('machine.largeHopper', 'machine.smallHopper', 'machine.onion.hopper')
+                AND (
+                    SELECT COUNT(*)
+                    FROM machines AS named
+                    WHERE named.tenant_id = machine.tenant_id
+                      AND named.name = machine.name
+                ) = 1
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM machine_parameter_photos AS conflict
+              WHERE conflict.id <> machine_parameter_photos.id
+                AND conflict.sort_order = machine_parameter_photos.sort_order
+                AND conflict.parameter_id = (
+                    SELECT parameter.id
+                    FROM parameter_photo_parameters AS parameter
+                    INNER JOIN machines AS machine
+                        ON machine.id = machine_parameter_photos.machine_id
+                       AND machine.tenant_id = parameter.tenant_id
+                       AND machine.name = parameter.name_key
+                    WHERE parameter.tenant_id = machine_parameter_photos.tenant_id
+                      AND parameter.name_key <> 'parameterPhoto.parameter.hopper'
+                      AND machine.name NOT IN ('machine.largeHopper', 'machine.smallHopper', 'machine.onion.hopper')
+                    LIMIT 1
+                )
+          )
+        """;
+
+    /// <summary>
+    /// Used by the catalog migration, which runs before the exclusion table exists.
+    /// </summary>
+    public const string MigrationLinkSql =
+        "UPDATE machine_parameter_photos\n" + AssignmentAndGuards + ";";
+
+    /// <summary>
+    /// Assigns still-unlinked photos from the eight legacy compressor machines
+    /// to <c>parameterPhoto.parameter.compressorRooms</c> in the same tenant.
+    /// Photo identity, machine id, and image URL stay unchanged. Each new
+    /// sort order is above every sort already stored on that parameter and
+    /// above every sort already stored on those eight machines, so both
+    /// unique indexes stay valid while the rows are updated.
+    /// </summary>
+    public static readonly string CompressorRoomsLinkSql =
+        "UPDATE machine_parameter_photos\n" +
+        "SET parameter_id = target.parameter_id,\n" +
+        "    sort_order = target.new_sort_order\n" +
+        "FROM (\n" +
+        "    SELECT\n" +
+        "        photo_row.id,\n" +
+        "        parameter.id AS parameter_id,\n" +
+        "        CASE\n" +
+        "            WHEN COALESCE(parameter_max.max_sort_order, 0)\n" +
+        "               >= COALESCE(machine_max.max_sort_order, 0)\n" +
+        "            THEN COALESCE(parameter_max.max_sort_order, 0)\n" +
+        "            ELSE COALESCE(machine_max.max_sort_order, 0)\n" +
+        "        END + ROW_NUMBER() OVER (\n" +
+        "            PARTITION BY photo_row.tenant_id\n" +
+        "            ORDER BY machine.name, photo_row.sort_order, photo_row.id\n" +
+        "        ) AS new_sort_order\n" +
+        "    FROM machine_parameter_photos AS photo_row\n" +
+        "    INNER JOIN machines AS machine\n" +
+        "        ON machine.id = photo_row.machine_id\n" +
+        "       AND machine.tenant_id = photo_row.tenant_id\n" +
+        "    INNER JOIN parameter_photo_parameters AS parameter\n" +
+        "        ON parameter.tenant_id = photo_row.tenant_id\n" +
+        "       AND parameter.name_key = '" + ParameterPhotoCatalog.CompressorRoomsKey + "'\n" +
+        "    LEFT JOIN (\n" +
+        "        SELECT parameter_id, MAX(sort_order) AS max_sort_order\n" +
+        "        FROM machine_parameter_photos\n" +
+        "        WHERE parameter_id IS NOT NULL\n" +
+        "        GROUP BY parameter_id\n" +
+        "    ) AS parameter_max\n" +
+        "        ON parameter_max.parameter_id = parameter.id\n" +
+        "    LEFT JOIN (\n" +
+        "        SELECT photo.tenant_id, MAX(photo.sort_order) AS max_sort_order\n" +
+        "        FROM machine_parameter_photos AS photo\n" +
+        "        INNER JOIN machines AS source_machine\n" +
+        "            ON source_machine.id = photo.machine_id\n" +
+        "           AND source_machine.tenant_id = photo.tenant_id\n" +
+        "        WHERE source_machine.name IN (" + CompressorRoomNameList + ")\n" +
+        "        GROUP BY photo.tenant_id\n" +
+        "    ) AS machine_max\n" +
+        "        ON machine_max.tenant_id = photo_row.tenant_id\n" +
+        "    WHERE photo_row.parameter_id IS NULL\n" +
+        "      AND photo_row.machine_id IS NOT NULL\n" +
+        "      AND machine.name IN (" + CompressorRoomNameList + ")\n" +
+        ") AS target\n" +
+        "WHERE machine_parameter_photos.id = target.id\n" +
+        "  AND machine_parameter_photos.parameter_id IS NULL;";
+
+    private static string CompressorRoomNameList =>
+        string.Join(", ", CompressorRoomsMachineNames.Select(name => "'" + name + "'"));
+
+    /// <summary>
+    /// Runtime link. Skips parameters hidden by a Parameter Photos exclusion.
+    /// </summary>
+    public const string RuntimeLinkSql =
+        "UPDATE machine_parameter_photos\n" + AssignmentAndGuards + """
+
+          AND NOT EXISTS (
+              SELECT 1
+              FROM parameter_photo_parameter_exclusions AS exclusion
+              INNER JOIN parameter_photo_parameters AS excluded_parameter
+                  ON excluded_parameter.id = exclusion.parameter_id
+                 AND excluded_parameter.tenant_id = exclusion.tenant_id
+              INNER JOIN machines AS excluded_machine
+                  ON excluded_machine.id = machine_parameter_photos.machine_id
+                 AND excluded_machine.tenant_id = excluded_parameter.tenant_id
+                 AND excluded_machine.name = excluded_parameter.name_key
+              WHERE exclusion.tenant_id = machine_parameter_photos.tenant_id
+          )
+        """ + ";";
+
+    public static async Task LinkCompressorRoomsAsync(
+        MaintTrackDbContext dbContext,
+        Guid? tenantId,
+        CancellationToken ct)
+    {
+        var sql = tenantId is null
+            ? CompressorRoomsLinkSql
+            : CompressorRoomsLinkSql.TrimEnd().TrimEnd(';') + "\n  AND machine_parameter_photos.tenant_id = {0};";
+
+        if (tenantId is Guid tenant)
+        {
+            await dbContext.Database.ExecuteSqlRawAsync(sql, new object[] { tenant }, ct);
+            return;
+        }
+
+        await dbContext.Database.ExecuteSqlRawAsync(sql, ct);
+    }
+
+    public static async Task<ParameterPhotoLinkResult> LinkAsync(
+        MaintTrackDbContext dbContext,
+        Guid? tenantId,
+        CancellationToken ct)
+    {
+        var machines = dbContext.Machines.IgnoreQueryFilters().AsNoTracking();
+        if (tenantId is Guid scopedTenant)
+        {
+            machines = machines.Where(machine => machine.TenantId == scopedTenant);
+        }
+
+        var ambiguousMachineNames = await machines
+            .GroupBy(machine => new { machine.TenantId, machine.Name })
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key.Name)
+            .Distinct()
+            .OrderBy(name => name)
+            .ToListAsync(ct);
+
+        var sql = tenantId is null
+            ? RuntimeLinkSql
+            : RuntimeLinkSql.TrimEnd().TrimEnd(';') + "\n  AND machine_parameter_photos.tenant_id = {0};";
+
+        var linkedCount = tenantId is Guid tenant
+            ? await dbContext.Database.ExecuteSqlRawAsync(sql, new object[] { tenant }, ct)
+            : await dbContext.Database.ExecuteSqlRawAsync(sql, ct);
+
+        return new ParameterPhotoLinkResult(linkedCount, ambiguousMachineNames);
+    }
+
+    /// <summary>
+    /// Returns true the first time this process should log a duplicate-name result.
+    /// Later catalog reads do not link, and the same names are not logged again.
+    /// </summary>
+    public static bool ShouldLogAmbiguousNames(Guid? tenantId, IReadOnlyList<string> machineNames)
+    {
+        if (machineNames.Count == 0)
+        {
+            return false;
+        }
+
+        var key = (tenantId?.ToString("N") ?? "*") + "|" + string.Join("|", machineNames);
+        return ReportedAmbiguousNames.TryAdd(key, 0);
+    }
+}

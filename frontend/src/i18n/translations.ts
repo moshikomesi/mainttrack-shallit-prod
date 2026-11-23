@@ -787,10 +787,91 @@ export const translations: Record<string, Record<Language, string>> = {
   'machineParameterPhotos.takePhoto': { en: 'Take Photo', he: 'צלם תמונה', th: 'ถ่ายภาพ' },
   'machineParameterPhotos.choosePhotos': { en: 'Choose Photos', he: 'בחר תמונות', th: 'เลือกรูปภาพ' },
   'machineParameterPhotos.deletePhoto': { en: 'Delete Photo', he: 'מחק תמונה', th: 'ลบรูปภาพ' },
+  'machineParameterPhotos.selectGroup': {
+    en: 'Select an array',
+    he: 'בחר מערך',
+    th: 'เลือกอาร์เรย์',
+  },
+  'machineParameterPhotos.selectParameter': {
+    en: 'Select a machine',
+    he: 'בחר מכונה',
+    th: 'เลือกเครื่องจักร',
+  },
   'machineParameterPhotos.empty': {
-    en: 'No parameter photos have been uploaded for this machine yet.',
-    he: 'עדיין לא הועלו תמונות פרמטר למכונה זו.',
-    th: 'ยังไม่มีรูปพารามิเตอร์สำหรับเครื่องจักรนี้',
+    en: 'No photos have been uploaded for this machine yet.',
+    he: 'עדיין לא הועלו תמונות למכונה זו.',
+    th: 'ยังไม่มีรูปภาพสำหรับเครื่องนี้',
+  },
+  'machineParameterPhotos.legacyTitle': {
+    en: 'Photos with no matching machine',
+    he: 'תמונות ללא מכונה תואמת',
+    th: 'รูปที่ไม่มีเครื่องที่ตรงกัน',
+  },
+  'machineParameterPhotos.legacyNeedsChoice': {
+    en: 'No catalog machine matches this photo. Choose the correct machine to resolve it. It stays unresolved until that choice is saved.',
+    he: 'לא נמצאה מכונה תואמת לתמונה זו. בחרו את המכונה הנכונה כדי לשייך אותה. היא תישאר לא משויכת עד שהבחירה תישמר.',
+    th: 'ไม่พบเครื่องที่ตรงกับรูปนี้ เลือกเครื่องที่ถูกต้องเพื่อแก้รูปนี้ รูปจะยังไม่ได้รับการแก้ไขจนกว่าจะบันทึกตัวเลือก',
+  },
+  'machineParameterPhotos.legacyNeedsManager': {
+    en: 'Some photos have no matching machine. A manager needs to resolve them.',
+    he: 'יש תמונות ללא מכונה תואמת. מנהל צריך לשייך אותן.',
+    th: 'มีรูปที่ไม่มีเครื่องที่ตรงกัน ผู้จัดการต้องแก้ไข',
+  },
+  'machineParameterPhotos.legacyChooseParameter': {
+    en: 'Choose the correct machine',
+    he: 'בחרו את המכונה הנכונה',
+    th: 'เลือกเครื่องที่ถูกต้อง',
+  },
+  'machineParameterPhotos.legacyAssign': {
+    en: 'Assign to machine',
+    he: 'שייך למכונה',
+    th: 'กำหนดให้เครื่อง',
+  },
+  'machineParameterPhotos.legacyAssigned': {
+    en: 'Photo assigned',
+    he: 'התמונה שויכה',
+    th: 'กำหนดรูปแล้ว',
+  },
+  'machineParameterPhotos.legacyFailed': {
+    en: 'Could not update the legacy photo',
+    he: 'לא ניתן לעדכן את התמונה הישנה',
+    th: 'ไม่สามารถอัปเดตรูปเก่าได้',
+  },
+  'parameterPhoto.group.coolingSystem': {
+    en: 'Cooling System',
+    he: 'מערכת קירור',
+    th: 'ระบบทำความเย็น',
+  },
+  'parameterPhoto.parameter.hopper': { en: 'Hopper', he: 'הופר', th: 'ฮอปเปอร์' },
+  'parameterPhoto.parameter.coolingSystemComputer': {
+    en: 'Computer of washing system',
+    he: 'מחשב של מערך שטיפה',
+    th: 'คอมพิวเตอร์ของระบบล้าง',
+  },
+  'parameterPhoto.parameter.compressorRooms': {
+    en: 'Compressor Rooms',
+    he: 'חדרי מדחסים',
+    th: 'ห้องคอมเพรสเซอร์',
+  },
+  'parameterPhoto.parameter.controlRoomAboveCoolingRooms': {
+    en: 'Control Room Above Cooling Rooms',
+    he: 'חדר בקרה מעל חדרי הקירור',
+    th: 'ห้องควบคุมเหนือห้องทำความเย็น',
+  },
+  'parameterPhoto.parameter.humidityControllers': {
+    en: 'Humidity Controllers',
+    he: 'בקרי לחות',
+    th: 'ตัวควบคุมความชื้น',
+  },
+  'parameterPhoto.parameter.ganShomronCooling': {
+    en: 'Gan Shomron Cooling',
+    he: 'קירור גן שומרון',
+    th: 'ระบบทำความเย็นגן שומרון',
+  },
+  'parameterPhoto.parameter.bagPullersUnderViscose': {
+    en: 'Bag pullers under the Viscose',
+    he: 'מושכני שקיות מתחת לויסכון',
+    th: 'ตัวดึงถุงใต้เครื่องวิสโคส',
   },
   'machineParameterPhotos.uploading': { en: 'Uploading…', he: 'מעלה…', th: 'กำลังอัปโหลด…' },
   'machineParameterPhotos.uploadSuccess': {
@@ -825,9 +906,9 @@ export const translations: Record<string, Record<Language, string>> = {
     th: 'ไฟล์ที่อัปโหลดต้องไม่ว่างเปล่า',
   },
   'machineParameterPhotos.photoAlt': {
-    en: 'Machine parameter photo',
-    he: 'תמונת פרמטר מכונה',
-    th: 'รูปพารามิเตอร์เครื่องจักร',
+    en: 'Machine photo',
+    he: 'תמונת מכונה',
+    th: 'รูปเครื่องจักร',
   },
 
 };
