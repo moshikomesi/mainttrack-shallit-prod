@@ -280,11 +280,7 @@ public sealed class MaintenanceTranslationsDisabledEndpointTests : IAsyncLifetim
     public async Task InitializeAsync()
     {
         _connection.Open();
-        _factory = TranslationApiHost.Create(_connection, enqueueEnabled: false, configure: services =>
-        {
-            services.RemoveAll<ITranslationRepository>();
-            services.AddSingleton<ITranslationRepository, ThrowingTranslationRepository>();
-        });
+        _factory = TranslationApiHost.Create(_connection, enqueueEnabled: false);
         _client = _factory.CreateClient();
 
         var tenantId = Guid.NewGuid();
@@ -319,6 +315,18 @@ public sealed class MaintenanceTranslationsDisabledEndpointTests : IAsyncLifetim
             CreatedByUserId = userId,
             CreatedAt = now
         });
+        db.TranslatedTexts.Add(new TranslatedText
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            EntityType = TranslatableFields.MaintenanceEntry,
+            EntityId = _entryId,
+            FieldName = TranslatableFields.Description,
+            SourceHash = SourceTextHasher.Compute("Seal leaking. Replaced the gasket."),
+            TargetLanguage = TranslationLanguages.English,
+            Text = "Seal replaced.",
+            CreatedAt = now
+        });
         await db.SaveChangesAsync();
         TranslationApiHost.Authenticate(_client, _factory.Services, tenantId, userId, (int)UserRole.Worker);
     }
@@ -331,7 +339,7 @@ public sealed class MaintenanceTranslationsDisabledEndpointTests : IAsyncLifetim
     }
 
     [Fact]
-    public async Task DisabledFlag_DoesNotReadTranslationTables()
+    public async Task DisabledFlag_ReadsStoredTranslationsWithoutEnqueue()
     {
         var response = await _client.GetAsync($"/api/maintenance/{_entryId}/translations");
         var body = await response.Content.ReadAsStringAsync();
@@ -339,8 +347,14 @@ public sealed class MaintenanceTranslationsDisabledEndpointTests : IAsyncLifetim
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var document = JsonDocument.Parse(body);
         Assert.Equal("Seal leaking. Replaced the gasket.", document.RootElement.GetProperty("originalText").GetString());
-        Assert.All(document.RootElement.GetProperty("translations").EnumerateArray(), item =>
-            Assert.Equal("unavailable", item.GetProperty("status").GetString()));
+        var english = document.RootElement.GetProperty("translations").EnumerateArray()
+            .Single(item => item.GetProperty("language").GetString() == "en");
+        Assert.Equal("completed", english.GetProperty("status").GetString());
+        Assert.Equal("Seal replaced.", english.GetProperty("text").GetString());
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaintTrackDbContext>();
+        Assert.Equal(0, await db.TranslationJobs.IgnoreQueryFilters().CountAsync());
     }
 }
 

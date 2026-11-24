@@ -298,7 +298,7 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
             return null;
 
         var parts = MaintenanceDescriptionText.Extract(entry.Description);
-        if (!_enqueueEnabled || _translations is null || !parts.HasTranslatableNarrative)
+        if (_translations is null || !parts.HasTranslatableNarrative)
             return MaintenanceTranslationsResponse.WithoutRecords(parts.Narrative);
 
         var rows = await _translations.GetNarrativeTranslationsAsync(

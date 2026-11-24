@@ -21,8 +21,11 @@ import type { MaintenanceEntryDto } from '../types/maintenance';
 import type { TreatmentDto } from '../types/treatment';
 import { formatDisplayDate, formatDisplayDateTime, formatFormDate } from '../utils/formatDate';
 import { formatTechnician } from '../utils/formatTechnician';
-import { viewMaintenanceDescription } from '../services/maintenanceDescription';
-import { resolveCatalogDisplayValue, resolveCatalogKey } from '../utils/resolveCatalogDisplayValue';
+import {
+  formatMaintenanceDescriptionDisplay,
+  viewMaintenanceDescription,
+} from '../services/maintenanceDescription';
+import { resolveCatalogKey } from '../utils/resolveCatalogDisplayValue';
 import type { MorningRoundReportVariant, ReportListItem, ReportsListReturnContext, ReportsListScreenProps } from '../types/reports';
 
 function interpolate(template: string, values: Record<string, string>): string {
@@ -299,11 +302,13 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
       }
 
       if (selectedComponentKey) {
-        if (r.maintenanceTypeCode !== 'other' || !r.description) return false;
+        if (!r.description) return false;
         const parsed = viewMaintenanceDescription(r.description);
-        if (!parsed?.component) return false;
-        // Match by catalog key so filtering works across languages and for
-        // legacy rows that stored a localized component label.
+        const structured =
+          parsed?.version === 'v2' ||
+          (parsed?.version === 'legacy' && Boolean(parsed.component));
+        if (!structured || !parsed?.component) return false;
+        // Match by catalog key so filtering works across languages.
         const storedKey = resolveCatalogKey(parsed.component);
         return storedKey === selectedComponentKey || parsed.component === selectedComponentKey;
       }
@@ -726,30 +731,33 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                       </div>
                       <div className="text-sm text-neutral-700">
                         {(() => {
-                          const parsed =
-                            report.maintenanceTypeCode === 'other' && report.description
-                              ? viewMaintenanceDescription(report.description)
-                              : null;
-                          if (parsed?.version === 'v1') {
-                            return (
-                              <span className="text-neutral-700 line-clamp-2">{parsed.narrative}</span>
-                            );
-                          }
-                          if (parsed?.component) {
-                            return (
-                              <>
-                                <span className="font-medium text-neutral-900">
-                                  {resolveCatalogDisplayValue(parsed.component, t)}
-                                </span>
-                                {parsed.narrative ? (
-                                  <span className="text-neutral-600"> — {parsed.narrative}</span>
-                                ) : null}
-                              </>
-                            );
+                          const display = formatMaintenanceDescriptionDisplay(
+                            report.description,
+                            report.maintenanceTypeCode,
+                            t
+                          );
+                          if (display.version === 'v2' || display.version === 'legacy') {
+                            if (display.componentLabel || display.narrative) {
+                              return (
+                                <>
+                                  {display.componentLabel && (
+                                    <span className="font-medium text-neutral-900">
+                                      {display.componentLabel}
+                                    </span>
+                                  )}
+                                  {display.narrative ? (
+                                    <span className="text-neutral-600">
+                                      {display.componentLabel ? ' — ' : ''}
+                                      {display.narrative}
+                                    </span>
+                                  ) : null}
+                                </>
+                              );
+                            }
                           }
                           return (
                             <span className="text-neutral-700 line-clamp-2">
-                              {report.description ||
+                              {display.narrative ||
                                 (report.maintenanceTypeCode
                                   ? t(`maintenanceType.${report.maintenanceTypeCode}`)
                                   : t('reports.maintenanceLog'))}

@@ -4,7 +4,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { getHierarchy, type HierarchyArray } from '../services/hierarchyService';
 import { getClearanceAccess, getClearanceQueue } from '../services/clearanceService';
 import type { ClearanceAccess, ClearanceItem, ClearanceStatus } from '../types/clearance';
-import { viewMaintenanceDescription } from '../services/maintenanceDescription';
+import { formatMaintenanceDescriptionDisplay } from '../services/maintenanceDescription';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/formatDate';
 import { resolveCatalogDisplayValue } from '../utils/resolveCatalogDisplayValue';
 import { AppHeader } from './AppHeader';
@@ -36,18 +36,10 @@ function ClearanceMaintenanceDescription({
   maintenanceTypeCode: string | null | undefined;
   translate: (key: string) => string;
 }) {
-  const parsed = viewMaintenanceDescription(description);
-  if (!parsed) return null;
-
+  const display = formatMaintenanceDescriptionDisplay(description, maintenanceTypeCode, translate);
   const lines: string[] = [];
-  if (parsed.component) {
-    lines.push(
-      maintenanceTypeCode === 'other'
-        ? resolveCatalogDisplayValue(parsed.component, translate)
-        : parsed.component
-    );
-  }
-  if (parsed.narrative) lines.push(parsed.narrative);
+  if (display.componentLabel) lines.push(display.componentLabel);
+  if (display.narrative) lines.push(display.narrative);
   if (lines.length === 0) return null;
 
   return (
