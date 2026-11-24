@@ -50,9 +50,10 @@ function isMaintenanceComponentKey(line: string): boolean {
 }
 
 /**
- * Recognizes an exact first-line sentinel.
- * A legacy component is recognized only when the trimmed first line is a
- * maintenanceComponent.* key. Every other legacy description is one narrative.
+ * Recognizes a V1 or V2 sentinel only when the raw first line matches it exactly,
+ * the same rule as the backend. A legacy component is recognized only when the
+ * trimmed first line is a maintenanceComponent.* key. Every other legacy
+ * description, including one with a padded sentinel, is one narrative.
  */
 export function viewMaintenanceDescription(
   description: string | null | undefined
@@ -60,9 +61,10 @@ export function viewMaintenanceDescription(
   if (description == null) return null;
 
   const lines = normalizeNewlines(description).split('\n');
-  const first = (lines[0] ?? '').trim();
+  const firstLine = lines[0] ?? '';
+  const legacyComponentCandidate = firstLine.trim();
 
-  if (first === MAINTENANCE_LOG_V1_SENTINEL) {
+  if (firstLine === MAINTENANCE_LOG_V1_SENTINEL) {
     return {
       version: 'v1',
       component: null,
@@ -70,7 +72,7 @@ export function viewMaintenanceDescription(
     };
   }
 
-  if (first === MAINTENANCE_LOG_V2_SENTINEL) {
+  if (firstLine === MAINTENANCE_LOG_V2_SENTINEL) {
     return {
       version: 'v2',
       component: (lines[1] ?? '').trim(),
@@ -78,10 +80,10 @@ export function viewMaintenanceDescription(
     };
   }
 
-  if (isMaintenanceComponentKey(first)) {
+  if (isMaintenanceComponentKey(legacyComponentCandidate)) {
     return {
       version: 'legacy',
-      component: first,
+      component: legacyComponentCandidate,
       narrative: lines.slice(1).join('\n').trim(),
     };
   }

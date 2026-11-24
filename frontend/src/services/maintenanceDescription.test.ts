@@ -151,14 +151,36 @@ describe('maintenance description display', () => {
     }
   });
 
-  it('recognizes a sentinel with surrounding whitespace', () => {
-    const display = formatMaintenanceDescriptionDisplay(
-      ' maintenanceLog.v2 \nmaintenanceComponent.driveShaft\nSeal leaking. Replaced the gasket.',
-      null,
-      translate('he')
-    );
-    assert.equal(display.componentLabel, 'ציר מניע');
-    assert.equal(visibleText(display.componentLabel, display.narrative).includes('maintenanceLog.v2'), false);
+  it('keeps a whitespace-padded sentinel as legacy narrative text, matching the backend', () => {
+    const body = 'maintenanceComponent.driveShaft\nSeal leaking. Replaced the gasket.';
+    const cases = [
+      { stored: ` maintenanceLog.v2 \n${body}`, expected: `maintenanceLog.v2 \n${body}` },
+      { stored: `maintenanceLog.v2 \n${body}`, expected: `maintenanceLog.v2 \n${body}` },
+      { stored: ` maintenanceLog.v1\n${narrative}`, expected: `maintenanceLog.v1\n${narrative}` },
+    ];
+
+    for (const { stored, expected } of cases) {
+      const view = viewMaintenanceDescription(stored);
+      assert.equal(view?.version, 'legacy');
+      assert.equal(view?.component, null);
+      assert.equal(view?.narrative, expected);
+
+      const display = formatMaintenanceDescriptionDisplay(stored, null, translate('he'));
+      assert.equal(display.version, 'legacy');
+      assert.equal(display.componentLabel, null);
+      assert.equal(display.narrative, expected);
+    }
+
+    const exact = viewMaintenanceDescription(`maintenanceLog.v2\n${body}`);
+    assert.equal(exact?.version, 'v2');
+    assert.equal(exact?.component, 'maintenanceComponent.driveShaft');
+  });
+
+  it('trims the first line only to detect a legacy component key', () => {
+    const view = viewMaintenanceDescription(`  maintenanceComponent.driveShaft  \n${narrative}`);
+    assert.equal(view?.version, 'legacy');
+    assert.equal(view?.component, 'maintenanceComponent.driveShaft');
+    assert.equal(view?.narrative, narrative);
   });
 
   it('does not expose a missing component key', () => {
