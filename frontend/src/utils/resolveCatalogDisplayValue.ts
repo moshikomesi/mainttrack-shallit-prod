@@ -1,4 +1,4 @@
-import { translations, type Language } from '../i18n/translations';
+import { translations, type Language } from '../i18n/translations.ts';
 
 /**
  * Catalog/entity translation key prefixes. Values for these keys are language

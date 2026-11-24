@@ -35,8 +35,8 @@ import {
 } from '../utils/reportLocationLabels';
 import { resolveMaintenanceReportArrayLabel } from '../utils/resolveMaintenanceReportArray';
 import {
+  formatMaintenanceDescriptionDisplay,
   selectNarrativeTranslation,
-  viewMaintenanceDescription,
 } from '../services/maintenanceDescription';
 import { resolveCatalogDisplayValue } from '../utils/resolveCatalogDisplayValue';
 import type { MorningRoundDto, MorningRoundTemplateItemDto } from '../types/morningRound';
@@ -519,18 +519,23 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     );
   }, [hierarchy, treatmentReport?.arrayId, treatmentReport?.machineId, t]);
 
-  const maintenanceDescription = useMemo(() => {
-    if (maintenanceReport?.maintenanceTypeCode !== 'other') return null;
-    return viewMaintenanceDescription(maintenanceReport.description);
-  }, [maintenanceReport?.description, maintenanceReport?.maintenanceTypeCode]);
+  const maintenanceDescription = useMemo(
+    () =>
+      formatMaintenanceDescriptionDisplay(
+        maintenanceReport?.description,
+        maintenanceReport?.maintenanceTypeCode,
+        t
+      ),
+    [maintenanceReport?.description, maintenanceReport?.maintenanceTypeCode, t]
+  );
 
   // The previous report stays in state until the new one loads; never pair it with the new reportId.
   const isCurrentMaintenanceReport =
     maintenanceReport != null && maintenanceReport.id.toLowerCase() === reportId.toLowerCase();
 
-  /** Only marked reports have a translatable narrative; legacy reports are never queued. */
+  /** V1, V2, and legacy narratives. A component-only description has nothing to translate. */
   const translatableNarrative =
-    isCurrentMaintenanceReport && maintenanceDescription && maintenanceDescription.version !== 'legacy'
+    isCurrentMaintenanceReport && maintenanceDescription.narrative.length > 0
       ? maintenanceDescription.narrative
       : '';
 
@@ -880,7 +885,9 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
               <>
                 <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-2">
                   <div className="space-y-1.5 text-sm">
-                    {maintenanceDescription && maintenanceDescription.version !== 'v1' ? (
+                    {maintenanceDescription.version === 'v2' ||
+                    (maintenanceDescription.version === 'legacy' &&
+                      maintenanceReport.maintenanceTypeCode === 'other') ? (
                       <>
                         <div>
                           <span className="text-neutral-600">{t('reports.maintenanceFilters.array')}: </span>
@@ -894,12 +901,14 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                               : maintenanceReport.machineId}
                           </span>
                         </div>
-                        <div>
-                          <span className="text-neutral-600">{t('reports.maintenanceFilters.component')}: </span>
-                          <span className="font-medium text-neutral-900">
-                            {resolveCatalogDisplayValue(maintenanceDescription.component ?? '', t)}
-                          </span>
-                        </div>
+                        {maintenanceDescription.componentLabel && (
+                          <div>
+                            <span className="text-neutral-600">{t('reports.maintenanceFilters.component')}: </span>
+                            <span className="font-medium text-neutral-900">
+                              {maintenanceDescription.componentLabel}
+                            </span>
+                          </div>
+                        )}
                         {maintenanceDescription.narrative.length > 0 && (
                           <div>
                             <span className="text-neutral-600">{t('log.fault')}: </span>
@@ -936,17 +945,18 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                             </span>
                           </div>
                         )}
-                        {(maintenanceDescription?.version === 'v1'
-                          ? maintenanceDescription.narrative
-                          : maintenanceReport.description?.trim() ?? ''
-                        ).length > 0 && (
+                        {maintenanceDescription.componentLabel && (
+                          <div>
+                            <span className="text-neutral-600">{t('reports.maintenanceFilters.component')}: </span>
+                            <span className="font-medium text-neutral-900">
+                              {maintenanceDescription.componentLabel}
+                            </span>
+                          </div>
+                        )}
+                        {maintenanceDescription.narrative.length > 0 && (
                           <div>
                             <span className="text-neutral-600">{t('log.fault')}: </span>
-                            <span className="text-neutral-900">
-                              {maintenanceDescription?.version === 'v1'
-                                ? maintenanceDescription.narrative
-                                : maintenanceReport.description}
-                            </span>
+                            <span className="text-neutral-900">{maintenanceDescription.narrative}</span>
                           </div>
                         )}
                         {narrativeTranslation && (

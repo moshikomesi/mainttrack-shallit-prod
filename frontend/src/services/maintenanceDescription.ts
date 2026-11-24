@@ -1,4 +1,5 @@
 import type { MaintenanceTranslationsResponse } from '../types/maintenance';
+import { resolveCatalogDisplayValue } from '../utils/resolveCatalogDisplayValue.ts';
 
 export const MAINTENANCE_LOG_V1_SENTINEL = 'maintenanceLog.v1';
 export const MAINTENANCE_LOG_V2_SENTINEL = 'maintenanceLog.v2';
@@ -42,9 +43,17 @@ export function buildMaintenanceLogV2Description(
   return lines.join('\n');
 }
 
+const MAINTENANCE_COMPONENT_KEY = /^maintenanceComponent\.[A-Za-z][A-Za-z0-9]*$/;
+
+function isMaintenanceComponentKey(line: string): boolean {
+  return MAINTENANCE_COMPONENT_KEY.test(line);
+}
+
 /**
- * Recognizes an exact first-line sentinel. Unmarked text keeps the historical
- * first-line component and remaining-lines details split.
+ * Recognizes a V1 or V2 sentinel only when the raw first line matches it exactly,
+ * the same rule as the backend. A legacy component is recognized only when the
+ * trimmed first line is a maintenanceComponent.* key. Every other legacy
+ * description, including one with a padded sentinel, is one narrative.
  */
 export function viewMaintenanceDescription(
   description: string | null | undefined
@@ -52,9 +61,10 @@ export function viewMaintenanceDescription(
   if (description == null) return null;
 
   const lines = normalizeNewlines(description).split('\n');
-  const first = lines[0] ?? '';
+  const firstLine = lines[0] ?? '';
+  const legacyComponentCandidate = firstLine.trim();
 
-  if (first === MAINTENANCE_LOG_V1_SENTINEL) {
+  if (firstLine === MAINTENANCE_LOG_V1_SENTINEL) {
     return {
       version: 'v1',
       component: null,
@@ -62,7 +72,7 @@ export function viewMaintenanceDescription(
     };
   }
 
-  if (first === MAINTENANCE_LOG_V2_SENTINEL) {
+  if (firstLine === MAINTENANCE_LOG_V2_SENTINEL) {
     return {
       version: 'v2',
       component: (lines[1] ?? '').trim(),
@@ -70,12 +80,91 @@ export function viewMaintenanceDescription(
     };
   }
 
-  const component = first.trim();
-  if (!component) return null;
+  if (isMaintenanceComponentKey(legacyComponentCandidate)) {
+    return {
+      version: 'legacy',
+      component: legacyComponentCandidate,
+      narrative: lines.slice(1).join('\n').trim(),
+    };
+  }
+
+  const narrative = normalizeNewlines(description).trim();
+  if (!narrative) return null;
   return {
     version: 'legacy',
-    component,
-    narrative: lines.slice(1).join('\n').trim(),
+    component: null,
+    narrative,
+  };
+}
+
+export type MaintenanceDescriptionDisplayVersion = MaintenanceDescriptionVersion | 'plain';
+
+export type MaintenanceDescriptionDisplay = {
+  version: MaintenanceDescriptionDisplayVersion;
+  /** Localized component label. Null when this report has no component line. */
+  componentLabel: string | null;
+  /** Free-text narrative in its stored language. */
+  narrative: string;
+};
+
+function isInternalMarker(value: string): boolean {
+  return value.startsWith('maintenanceLog.') || value.startsWith('maintenanceComponent.');
+}
+
+/**
+ * Catalog component keys go through the existing translation function.
+ * A missing key becomes the shared "not provided" label. Free text is unchanged.
+ * Format sentinels are never returned.
+ */
+export function displayMaintenanceComponentLabel(
+  component: string | null | undefined,
+  t: (key: string) => string
+): string {
+  const trimmed = component?.trim() ?? '';
+  if (!trimmed || trimmed.startsWith('maintenanceLog.')) return '';
+
+  const resolved = resolveCatalogDisplayValue(trimmed, t);
+  if (!resolved || isInternalMarker(resolved)) {
+    const fallback = t('common.notProvided');
+    return isInternalMarker(fallback) ? '' : fallback;
+  }
+  return resolved;
+}
+
+/**
+ * Display model for a stored maintenance description.
+ * Marked V1 and V2 reports are recognized from their sentinel even when the
+ * maintenance type is not "other". A legacy component key is localized on its
+ * own; the narrative never includes that key or its label.
+ */
+export function formatMaintenanceDescriptionDisplay(
+  description: string | null | undefined,
+  maintenanceTypeCode: string | null | undefined,
+  t: (key: string) => string
+): MaintenanceDescriptionDisplay {
+  void maintenanceTypeCode;
+  const view = viewMaintenanceDescription(description);
+  if (!view) {
+    return { version: 'plain', componentLabel: null, narrative: '' };
+  }
+
+  if (view.version === 'v1') {
+    return { version: 'v1', componentLabel: null, narrative: view.narrative };
+  }
+
+  if (view.version === 'v2' || view.component) {
+    const componentLabel = displayMaintenanceComponentLabel(view.component, t);
+    return {
+      version: view.version,
+      componentLabel: componentLabel || null,
+      narrative: view.narrative,
+    };
+  }
+
+  return {
+    version: 'legacy',
+    componentLabel: null,
+    narrative: view.narrative,
   };
 }
 

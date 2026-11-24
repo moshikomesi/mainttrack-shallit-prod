@@ -49,19 +49,65 @@ public sealed class MaintenanceDescriptionTextTests
     }
 
     [Fact]
-    public void UnmarkedV1ShapedDescription_IsNotTranslatable()
+    public void LegacyNarrativeOnly_UsesTheWholeNormalizedDescription()
     {
-        var parts = MaintenanceDescriptionText.Extract("Seal leaking. Replaced the gasket.");
+        const string description = "  Seal leaking.\r\nReplaced the gasket.  ";
 
-        Assert.Equal(MaintenanceDescriptionVersion.Unmarked, parts.Version);
+        var parts = MaintenanceDescriptionText.Extract(description);
+
+        Assert.Equal(MaintenanceDescriptionVersion.Legacy, parts.Version);
+        Assert.Null(parts.Component);
+        Assert.Equal("Seal leaking.\nReplaced the gasket.", parts.Narrative);
+        Assert.True(parts.HasTranslatableNarrative);
+        Assert.Equal(SourceTextHasher.Compute(parts.Narrative), SourceTextHasher.Compute("Seal leaking.\nReplaced the gasket."));
+    }
+
+    [Fact]
+    public void LegacyComponentAndNarrative_KeepsTheKeyOutOfTheNarrativeHash()
+    {
+        var description = $"maintenanceComponent.driveShaft\r\n{Narrative}";
+        var normalized = description.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Trim();
+
+        var parts = MaintenanceDescriptionText.Extract(description);
+
+        Assert.Equal(MaintenanceDescriptionVersion.Legacy, parts.Version);
+        Assert.Equal("maintenanceComponent.driveShaft", parts.Component);
+        Assert.Equal(Narrative, parts.Narrative);
+        Assert.DoesNotContain("maintenanceComponent.", parts.Narrative, StringComparison.Ordinal);
+        Assert.True(parts.HasTranslatableNarrative);
+        Assert.Equal(SourceTextHasher.Compute(Narrative), SourceTextHasher.Compute(parts.Narrative));
+        Assert.NotEqual(SourceTextHasher.Compute(normalized), SourceTextHasher.Compute(parts.Narrative));
+    }
+
+    [Theory]
+    [InlineData("maintenanceComponent.driveShaft")]
+    [InlineData("maintenanceComponent.bearing\n")]
+    [InlineData("  maintenanceComponent.other  \r\n   ")]
+    public void LegacyComponentOnly_IsNotTranslatable(string description)
+    {
+        var parts = MaintenanceDescriptionText.Extract(description);
+
+        Assert.Equal(MaintenanceDescriptionVersion.Legacy, parts.Version);
+        Assert.StartsWith("maintenanceComponent.", parts.Component, StringComparison.Ordinal);
         Assert.Equal(string.Empty, parts.Narrative);
         Assert.False(parts.HasTranslatableNarrative);
     }
 
     [Fact]
-    public void UnmarkedV2ShapedDescription_IsNotTranslatable()
+    public void LegacyFreeText_DoesNotTreatTheFirstLineAsAComponent()
     {
-        var parts = MaintenanceDescriptionText.Extract("Hydraulic pump\nSeal leaking. Replaced the gasket.");
+        var parts = MaintenanceDescriptionText.Extract($"Hydraulic pump\n{Narrative}");
+
+        Assert.Equal(MaintenanceDescriptionVersion.Legacy, parts.Version);
+        Assert.Null(parts.Component);
+        Assert.Equal($"Hydraulic pump\n{Narrative}", parts.Narrative);
+        Assert.True(parts.HasTranslatableNarrative);
+    }
+
+    [Fact]
+    public void BlankDescription_StaysUnmarked()
+    {
+        var parts = MaintenanceDescriptionText.Extract("  \r\n  ");
 
         Assert.Equal(MaintenanceDescriptionVersion.Unmarked, parts.Version);
         Assert.Null(parts.Component);

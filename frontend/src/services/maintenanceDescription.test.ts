@@ -3,10 +3,20 @@ import { describe, it } from 'node:test';
 import {
   buildMaintenanceLogV1Description,
   buildMaintenanceLogV2Description,
+  formatMaintenanceDescriptionDisplay,
   selectNarrativeTranslation,
   viewMaintenanceDescription,
 } from './maintenanceDescription.ts';
+import { translations, type Language } from '../i18n/translations.ts';
 import type { MaintenanceTranslationsResponse } from '../types/maintenance.ts';
+
+function translate(language: Language): (key: string) => string {
+  return (key: string) => translations[key]?.[language] || key;
+}
+
+function visibleText(componentLabel: string | null, narrative: string): string {
+  return [componentLabel, narrative].filter((part) => part && part.length > 0).join('\n');
+}
 
 const narrative = 'Seal leaking. Replaced the gasket.';
 
@@ -69,47 +79,182 @@ describe('maintenance description sentinels', () => {
     assert.equal(view?.narrative, '');
   });
 
-  it('keeps unmarked descriptions on the historical first-line split', () => {
-    const v1Shaped = viewMaintenanceDescription(narrative);
-    assert.equal(v1Shaped?.version, 'legacy');
-    assert.equal(v1Shaped?.component, narrative);
-    assert.equal(v1Shaped?.narrative, '');
+  it('treats a legacy description without a component key as one narrative', () => {
+    const narrativeOnly = viewMaintenanceDescription(`  ${narrative}  `);
+    assert.equal(narrativeOnly?.version, 'legacy');
+    assert.equal(narrativeOnly?.component, null);
+    assert.equal(narrativeOnly?.narrative, narrative);
 
-    const v2Shaped = viewMaintenanceDescription(`Hydraulic pump\n${narrative}`);
-    assert.equal(v2Shaped?.version, 'legacy');
-    assert.equal(v2Shaped?.component, 'Hydraulic pump');
-    assert.equal(v2Shaped?.narrative, narrative);
+    const freeText = viewMaintenanceDescription(`Hydraulic pump\n${narrative}`);
+    assert.equal(freeText?.version, 'legacy');
+    assert.equal(freeText?.component, null);
+    assert.equal(freeText?.narrative, `Hydraulic pump\n${narrative}`);
+  });
 
-    const catalog = viewMaintenanceDescription('maintenanceComponent.bearing\nSeal leaking.');
+  it('splits a legacy component key from the narrative and ignores a component-only description', () => {
+    const catalog = viewMaintenanceDescription('maintenanceComponent.bearing\r\nSeal leaking.');
     assert.equal(catalog?.version, 'legacy');
     assert.equal(catalog?.component, 'maintenanceComponent.bearing');
     assert.equal(catalog?.narrative, 'Seal leaking.');
+    assert.equal(catalog?.narrative.includes('maintenanceComponent.'), false);
+
+    const componentOnly = viewMaintenanceDescription('  maintenanceComponent.driveShaft  \n   ');
+    assert.equal(componentOnly?.version, 'legacy');
+    assert.equal(componentOnly?.component, 'maintenanceComponent.driveShaft');
+    assert.equal(componentOnly?.narrative, '');
   });
 
   it('composes Clearance display lines without sentinels', () => {
-    /** Same original-language composition ClearanceScreen uses (before catalog resolve). */
-    const clearanceLines = (description: string): string[] => {
-      const view = viewMaintenanceDescription(description);
-      if (!view) return [];
-      const lines: string[] = [];
-      if (view.component) lines.push(view.component);
-      if (view.narrative) lines.push(view.narrative);
-      return lines;
+    const clearanceLines = (description: string, maintenanceTypeCode: string | null): string[] => {
+      const display = formatMaintenanceDescriptionDisplay(description, maintenanceTypeCode, translate('en'));
+      return [display.componentLabel, display.narrative].filter((line): line is string => Boolean(line));
     };
 
     const v1 = buildMaintenanceLogV1Description(narrative);
-    assert.deepEqual(clearanceLines(v1), [narrative]);
-    assert.equal(clearanceLines(v1).join('\n').includes('maintenanceLog'), false);
+    assert.deepEqual(clearanceLines(v1, 'other'), [narrative]);
+    assert.equal(clearanceLines(v1, 'bearing').join('\n').includes('maintenanceLog'), false);
 
     const v2 = buildMaintenanceLogV2Description(
       { kind: 'mapped', code: 'bearing', nameKey: 'maintenanceComponent.bearing' },
       narrative
     );
-    assert.deepEqual(clearanceLines(v2), ['maintenanceComponent.bearing', narrative]);
-    assert.equal(clearanceLines(v2).join('\n').includes('maintenanceLog.v2'), false);
+    assert.deepEqual(clearanceLines(v2, 'other'), ['Bearing', narrative]);
+    assert.equal(clearanceLines(v2, 'bearing').join('\n').includes('maintenanceLog.v2'), false);
+    assert.equal(clearanceLines(v2, 'bearing').join('\n').includes('maintenanceComponent.'), false);
 
     const legacy = `Hydraulic pump\n${narrative}`;
-    assert.deepEqual(clearanceLines(legacy), ['Hydraulic pump', narrative]);
+    assert.deepEqual(clearanceLines(legacy, 'other'), [legacy]);
+    assert.deepEqual(clearanceLines(legacy, 'bearing'), [legacy]);
+
+    const catalog = `maintenanceComponent.driveShaft\n${narrative}`;
+    assert.deepEqual(clearanceLines(catalog, 'bearing'), ['Drive shaft', narrative]);
+    assert.equal(clearanceLines(catalog, 'bearing').join('\n').includes('maintenanceComponent.'), false);
+  });
+});
+
+describe('maintenance description display', () => {
+  const languages: Language[] = ['he', 'en', 'th'];
+  const driveShaft = 'maintenanceLog.v2\nmaintenanceComponent.driveShaft\nSeal leaking. Replaced the gasket.';
+
+  it('renders a V2 component key in Hebrew, English, and Thai', () => {
+    for (const language of languages) {
+      const display = formatMaintenanceDescriptionDisplay(driveShaft, 'motor', translate(language));
+      const expected = translations['maintenanceComponent.driveShaft'][language];
+
+      assert.equal(display.version, 'v2');
+      assert.equal(display.componentLabel, expected);
+      assert.equal(display.narrative, narrative);
+      const shown = visibleText(display.componentLabel, display.narrative);
+      assert.equal(shown.includes('maintenanceLog.v2'), false);
+      assert.equal(shown.includes('maintenanceComponent.'), false);
+      assert.equal(shown.includes(narrative), true);
+    }
+  });
+
+  it('keeps a whitespace-padded sentinel as legacy narrative text, matching the backend', () => {
+    const body = 'maintenanceComponent.driveShaft\nSeal leaking. Replaced the gasket.';
+    const cases = [
+      { stored: ` maintenanceLog.v2 \n${body}`, expected: `maintenanceLog.v2 \n${body}` },
+      { stored: `maintenanceLog.v2 \n${body}`, expected: `maintenanceLog.v2 \n${body}` },
+      { stored: ` maintenanceLog.v1\n${narrative}`, expected: `maintenanceLog.v1\n${narrative}` },
+    ];
+
+    for (const { stored, expected } of cases) {
+      const view = viewMaintenanceDescription(stored);
+      assert.equal(view?.version, 'legacy');
+      assert.equal(view?.component, null);
+      assert.equal(view?.narrative, expected);
+
+      const display = formatMaintenanceDescriptionDisplay(stored, null, translate('he'));
+      assert.equal(display.version, 'legacy');
+      assert.equal(display.componentLabel, null);
+      assert.equal(display.narrative, expected);
+    }
+
+    const exact = viewMaintenanceDescription(`maintenanceLog.v2\n${body}`);
+    assert.equal(exact?.version, 'v2');
+    assert.equal(exact?.component, 'maintenanceComponent.driveShaft');
+  });
+
+  it('trims the first line only to detect a legacy component key', () => {
+    const view = viewMaintenanceDescription(`  maintenanceComponent.driveShaft  \n${narrative}`);
+    assert.equal(view?.version, 'legacy');
+    assert.equal(view?.component, 'maintenanceComponent.driveShaft');
+    assert.equal(view?.narrative, narrative);
+  });
+
+  it('does not expose a missing component key', () => {
+    const stored = 'maintenanceLog.v2\nmaintenanceComponent.notInCatalog\nSeal leaking. Replaced the gasket.';
+    for (const language of languages) {
+      const display = formatMaintenanceDescriptionDisplay(stored, 'other', translate(language));
+      const shown = visibleText(display.componentLabel, display.narrative);
+      assert.equal(display.componentLabel, translations['common.notProvided'][language]);
+      assert.equal(shown.includes('maintenanceComponent.notInCatalog'), false);
+      assert.equal(shown.includes('maintenanceLog.v2'), false);
+      assert.equal(display.narrative, narrative);
+    }
+  });
+
+  it('keeps a V1 narrative and a legacy free-text description intact', () => {
+    const v1 = formatMaintenanceDescriptionDisplay(
+      buildMaintenanceLogV1Description(`Hydraulic pump\n${narrative}`),
+      'bearing',
+      translate('en')
+    );
+    assert.equal(v1.version, 'v1');
+    assert.equal(v1.componentLabel, null);
+    assert.equal(v1.narrative, `Hydraulic pump\n${narrative}`);
+    assert.equal(visibleText(v1.componentLabel, v1.narrative).includes('maintenanceLog.v1'), false);
+
+    const legacy = `Hydraulic pump\n${narrative}`;
+    const plain = formatMaintenanceDescriptionDisplay(legacy, 'bearing', translate('th'));
+    assert.equal(plain.version, 'legacy');
+    assert.equal(plain.componentLabel, null);
+    assert.equal(plain.narrative, legacy);
+  });
+
+  it('localizes a legacy component key in Hebrew, English, and Thai without repeating it in the narrative', () => {
+    const stored = `maintenanceComponent.driveShaft\n${narrative}`;
+    const translation: MaintenanceTranslationsResponse = {
+      originalText: narrative,
+      translations: [
+        { language: 'he', status: 'completed', text: 'האטם דולף. האטם הוחלף.' },
+        { language: 'en', status: 'completed', text: 'Seal leak fixed.' },
+        { language: 'th', status: 'completed', text: 'ซีลรั่ว เปลี่ยนปะเก็นแล้ว' },
+      ],
+    };
+
+    for (const language of languages) {
+      const display = formatMaintenanceDescriptionDisplay(stored, 'bearing', translate(language));
+      const label = translations['maintenanceComponent.driveShaft'][language];
+      const translated = selectNarrativeTranslation(translation, display.narrative, language);
+      const shown = visibleText(display.componentLabel, translated ?? display.narrative);
+
+      assert.equal(display.version, 'legacy');
+      assert.equal(display.componentLabel, label);
+      assert.equal(display.narrative, narrative);
+      assert.equal(shown.includes('maintenanceComponent.'), false);
+      assert.equal(shown.includes(label), true);
+      assert.equal(translated?.includes(label), false);
+      assert.equal(translated?.includes('maintenanceComponent.'), false);
+    }
+
+    const componentOnly = formatMaintenanceDescriptionDisplay(
+      'maintenanceComponent.driveShaft',
+      null,
+      translate('he')
+    );
+    assert.equal(componentOnly.componentLabel, 'ציר מניע');
+    assert.equal(componentOnly.narrative, '');
+    assert.equal(selectNarrativeTranslation(translation, componentOnly.narrative, 'he'), null);
+  });
+
+  it('keeps a custom V2 component name and does not translate it as a key', () => {
+    const stored = buildMaintenanceLogV2Description({ kind: 'other', text: 'Hydraulic pump' }, narrative);
+    const display = formatMaintenanceDescriptionDisplay(stored, 'other', translate('he'));
+    assert.equal(display.componentLabel, 'Hydraulic pump');
+    assert.equal(display.narrative, narrative);
+    assert.equal(visibleText(display.componentLabel, display.narrative).includes('maintenanceLog.v2'), false);
   });
 });
 

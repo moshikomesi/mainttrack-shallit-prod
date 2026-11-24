@@ -139,16 +139,49 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
         Assert.Equal(3, await _db.TranslationJobs.IgnoreQueryFilters().CountAsync(job => job.EntityId == entryId));
     }
 
+    [Fact]
+    public async Task CreateAsync_EnqueuesLegacyNarrativeOnly()
+    {
+        const string description = "Seal leaking.\r\nReplaced the gasket.";
+        const string narrative = "Seal leaking.\nReplaced the gasket.";
+        var entryId = await CreateAsync(description, EnabledService(_repository));
+
+        var jobs = await JobsForAsync(entryId);
+        Assert.Equal(3, jobs.Count);
+        Assert.All(jobs, job =>
+        {
+            Assert.Equal(narrative, job.SourceText);
+            Assert.Equal(SourceTextHasher.Compute(narrative), job.SourceHash);
+        });
+        Assert.Equal(description, (await EntryAsync(entryId)).Description);
+    }
+
+    [Fact]
+    public async Task CreateAsync_EnqueuesLegacyComponentNarrative_WithoutTheComponentKey()
+    {
+        var description = $"maintenanceComponent.driveShaft\n{Narrative}";
+        var entryId = await CreateAsync(description, EnabledService(_repository));
+
+        var jobs = await JobsForAsync(entryId);
+        Assert.Equal(3, jobs.Count);
+        Assert.All(jobs, job =>
+        {
+            Assert.Equal(Narrative, job.SourceText);
+            Assert.Equal(SourceTextHasher.Compute(Narrative), job.SourceHash);
+            Assert.DoesNotContain("maintenanceComponent.", job.SourceText, StringComparison.Ordinal);
+        });
+        Assert.Equal(description, (await EntryAsync(entryId)).Description);
+    }
+
     [Theory]
     [InlineData("maintenanceLog.v2\nOther: Hydraulic pump")]
-    [InlineData("Seal leaking. Replaced the gasket.")]
-    [InlineData("Hydraulic pump\nSeal leaking. Replaced the gasket.")]
-    public async Task CreateAsync_DoesNotQueue_WhenNarrativeIsAbsentOrUnmarked(string description)
+    [InlineData("maintenanceComponent.driveShaft")]
+    public async Task CreateAsync_DoesNotQueue_WhenNarrativeIsAbsent(string description)
     {
         var probe = new ProbeTranslationRepository();
         var entryId = await CreateAsync(description, EnabledService(probe));
 
-        Assert.Equal(0, probe.Calls);
+        Assert.Equal(0, probe.EnqueueCalls);
         Assert.Empty(await JobsForAsync(entryId));
         Assert.Equal(description, (await EntryAsync(entryId)).Description);
     }
@@ -170,11 +203,206 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
         var entryId = await CreateAsync(description, service);
         var translations = await service.GetTranslationsAsync(entryId, CancellationToken.None);
 
-        Assert.Equal(0, probe.Calls);
+        Assert.Equal(0, probe.EnqueueCalls);
+        Assert.Equal(1, probe.ReadCalls);
+        Assert.Equal(SourceTextHasher.Compute(Narrative), probe.ReadSourceHash);
         Assert.Empty(await JobsForAsync(entryId));
         Assert.NotNull(translations);
         Assert.Equal(Narrative, translations!.OriginalText);
         Assert.All(translations.Translations, item =>
+        {
+            Assert.Equal(MaintenanceTranslationPublicStatus.Unavailable, item.Status);
+            Assert.Null(item.Text);
+        });
+    }
+
+    [Fact]
+    public async Task DisabledFlag_ReadsStoredNarrativeTranslations_WithoutEnqueue()
+    {
+        var description = $"maintenanceLog.v2\nmaintenanceComponent.driveShaft\n{Narrative}";
+        var normalizedDescription = description.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Trim();
+        var service = new MaintenanceEntryService(
+            _db,
+            _tenantContext,
+            new StubUser(_tenantId),
+            new TrackingFileStorage(),
+            NullLogger<MaintenanceEntryService>.Instance,
+            Options.Create(new TranslationWorkerOptions { EnqueueEnabled = false }),
+            _repository);
+        var entryId = await CreateAsync(description, service);
+        var now = DateTime.UtcNow;
+
+        _db.TranslatedTexts.AddRange(
+            Translation(entryId, TranslationLanguages.English, SourceTextHasher.Compute(Narrative), "English narrative", now),
+            Translation(entryId, TranslationLanguages.Thai, SourceTextHasher.Compute(Narrative), "Thai narrative", now),
+            Translation(entryId, TranslationLanguages.English, SourceTextHasher.Compute(normalizedDescription), "English full description", now.AddMinutes(1)));
+        await _db.SaveChangesAsync();
+
+        var translations = await service.GetTranslationsAsync(entryId, CancellationToken.None);
+
+        Assert.Empty(await JobsForAsync(entryId));
+        Assert.NotNull(translations);
+        Assert.Equal(Narrative, translations!.OriginalText);
+        var english = Assert.Single(translations.Translations, item => item.Language == TranslationLanguages.English);
+        Assert.Equal(MaintenanceTranslationPublicStatus.Completed, english.Status);
+        Assert.Equal("English narrative", english.Text);
+        var thai = Assert.Single(translations.Translations, item => item.Language == TranslationLanguages.Thai);
+        Assert.Equal("Thai narrative", thai.Text);
+        var hebrew = Assert.Single(translations.Translations, item => item.Language == TranslationLanguages.Hebrew);
+        Assert.Equal(MaintenanceTranslationPublicStatus.Unavailable, hebrew.Status);
+        Assert.Null(hebrew.Text);
+        Assert.NotEqual(SourceTextHasher.Compute(Narrative), SourceTextHasher.Compute(normalizedDescription));
+    }
+
+    [Fact]
+    public async Task DisabledFlag_ReadsLegacyNarrativeTranslation_WithoutEnqueue()
+    {
+        const string description = "  Seal leaking.\r\nReplaced the gasket.  ";
+        const string narrative = "Seal leaking.\nReplaced the gasket.";
+        var service = DisabledService();
+        var entryId = await CreateAsync(description, service);
+        var now = DateTime.UtcNow;
+
+        _db.TranslatedTexts.Add(Translation(
+            entryId,
+            TranslationLanguages.English,
+            SourceTextHasher.Compute(narrative),
+            "English narrative",
+            now));
+        await _db.SaveChangesAsync();
+
+        var translations = await service.GetTranslationsAsync(entryId, CancellationToken.None);
+
+        Assert.Empty(await JobsForAsync(entryId));
+        Assert.NotNull(translations);
+        Assert.Equal(narrative, translations!.OriginalText);
+        Assert.Equal(SourceTextHasher.Compute(narrative), SourceTextHasher.Compute(translations.OriginalText));
+        var english = Assert.Single(translations.Translations, item => item.Language == TranslationLanguages.English);
+        Assert.Equal("English narrative", english.Text);
+    }
+
+    [Fact]
+    public async Task DisabledFlag_ReadsLegacyComponentNarrative_WithoutEnqueue()
+    {
+        var description = $"maintenanceComponent.bearing\r\n{Narrative}";
+        var normalizedDescription = description.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Trim();
+        var service = DisabledService();
+        var entryId = await CreateAsync(description, service);
+        var now = DateTime.UtcNow;
+
+        _db.TranslatedTexts.AddRange(
+            Translation(entryId, TranslationLanguages.English, SourceTextHasher.Compute(Narrative), "English narrative", now),
+            Translation(entryId, TranslationLanguages.Thai, SourceTextHasher.Compute(Narrative), "Thai narrative", now),
+            Translation(entryId, TranslationLanguages.Hebrew, SourceTextHasher.Compute(normalizedDescription), "Hebrew full description", now.AddMinutes(1)));
+        await _db.SaveChangesAsync();
+
+        var translations = await service.GetTranslationsAsync(entryId, CancellationToken.None);
+
+        Assert.Empty(await JobsForAsync(entryId));
+        Assert.NotNull(translations);
+        Assert.Equal(Narrative, translations!.OriginalText);
+        Assert.DoesNotContain("maintenanceComponent.", translations.OriginalText, StringComparison.Ordinal);
+        Assert.Equal(SourceTextHasher.Compute(Narrative), SourceTextHasher.Compute(translations.OriginalText));
+        Assert.NotEqual(SourceTextHasher.Compute(normalizedDescription), SourceTextHasher.Compute(translations.OriginalText));
+        Assert.Equal("English narrative", Assert.Single(translations.Translations, item => item.Language == TranslationLanguages.English).Text);
+        Assert.Equal("Thai narrative", Assert.Single(translations.Translations, item => item.Language == TranslationLanguages.Thai).Text);
+        var hebrew = Assert.Single(translations.Translations, item => item.Language == TranslationLanguages.Hebrew);
+        Assert.Equal(MaintenanceTranslationPublicStatus.Unavailable, hebrew.Status);
+        Assert.Null(hebrew.Text);
+    }
+
+    [Fact]
+    public async Task DisabledFlag_LegacyComponentOnly_DoesNotReadOrEnqueue()
+    {
+        var probe = new ProbeTranslationRepository();
+        var service = new MaintenanceEntryService(
+            _db,
+            _tenantContext,
+            new StubUser(_tenantId),
+            new TrackingFileStorage(),
+            NullLogger<MaintenanceEntryService>.Instance,
+            Options.Create(new TranslationWorkerOptions { EnqueueEnabled = false }),
+            probe);
+
+        var entryId = await CreateAsync("maintenanceComponent.driveShaft", service);
+        var translations = await service.GetTranslationsAsync(entryId, CancellationToken.None);
+
+        Assert.Equal(0, probe.EnqueueCalls);
+        Assert.Equal(0, probe.ReadCalls);
+        Assert.Null(probe.ReadSourceHash);
+        Assert.Empty(await JobsForAsync(entryId));
+        Assert.NotNull(translations);
+        Assert.Equal(string.Empty, translations!.OriginalText);
+        Assert.All(translations.Translations, item =>
+            Assert.Equal(MaintenanceTranslationPublicStatus.Unavailable, item.Status));
+    }
+
+    [Fact]
+    public async Task DisabledFlag_DoesNotReadAnotherTenantsLegacyTranslations()
+    {
+        const string description = "Seal leaking. Replaced the gasket.";
+        var service = DisabledService();
+        var entryId = await CreateAsync(description, service);
+
+        _db.TranslatedTexts.Add(new TranslatedText
+        {
+            Id = Guid.NewGuid(),
+            TenantId = Guid.NewGuid(),
+            EntityType = TranslatableFields.MaintenanceEntry,
+            EntityId = entryId,
+            FieldName = TranslatableFields.Description,
+            SourceHash = SourceTextHasher.Compute(description),
+            TargetLanguage = TranslationLanguages.Thai,
+            Text = "Other tenant",
+            CreatedAt = DateTime.UtcNow
+        });
+        await _db.SaveChangesAsync();
+
+        var translations = await service.GetTranslationsAsync(entryId, CancellationToken.None);
+
+        Assert.Empty(await JobsForAsync(entryId));
+        Assert.NotNull(translations);
+        Assert.All(translations!.Translations, item =>
+        {
+            Assert.Equal(MaintenanceTranslationPublicStatus.Unavailable, item.Status);
+            Assert.Null(item.Text);
+        });
+    }
+
+    [Fact]
+    public async Task DisabledFlag_DoesNotReadAnotherTenantsTranslations()
+    {
+        var description = $"maintenanceLog.v2\nHydraulic pump\n{Narrative}";
+        var service = new MaintenanceEntryService(
+            _db,
+            _tenantContext,
+            new StubUser(_tenantId),
+            new TrackingFileStorage(),
+            NullLogger<MaintenanceEntryService>.Instance,
+            Options.Create(new TranslationWorkerOptions { EnqueueEnabled = false }),
+            _repository);
+        var entryId = await CreateAsync(description, service);
+        var otherTenant = Guid.NewGuid();
+
+        _db.TranslatedTexts.Add(new TranslatedText
+        {
+            Id = Guid.NewGuid(),
+            TenantId = otherTenant,
+            EntityType = TranslatableFields.MaintenanceEntry,
+            EntityId = entryId,
+            FieldName = TranslatableFields.Description,
+            SourceHash = SourceTextHasher.Compute(Narrative),
+            TargetLanguage = TranslationLanguages.English,
+            Text = "Other tenant",
+            CreatedAt = DateTime.UtcNow
+        });
+        await _db.SaveChangesAsync();
+
+        var translations = await service.GetTranslationsAsync(entryId, CancellationToken.None);
+
+        Assert.Empty(await JobsForAsync(entryId));
+        Assert.NotNull(translations);
+        Assert.All(translations!.Translations, item =>
         {
             Assert.Equal(MaintenanceTranslationPublicStatus.Unavailable, item.Status);
             Assert.Null(item.Text);
@@ -236,7 +464,7 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
 
         await service.CreateAsync(Request("maintenanceLog.v2\nHydraulic pump\nSeal leaking."), request.Token);
 
-        Assert.Equal(1, probe.Calls);
+        Assert.Equal(1, probe.EnqueueCalls);
         Assert.NotNull(probe.ReceivedEnqueueToken);
         Assert.False(probe.ReceivedEnqueueToken!.Value.CanBeCanceled);
     }
@@ -343,6 +571,16 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
         }
     }
 
+    private MaintenanceEntryService DisabledService() =>
+        new(
+            _db,
+            _tenantContext,
+            new StubUser(_tenantId),
+            new TrackingFileStorage(),
+            NullLogger<MaintenanceEntryService>.Instance,
+            Options.Create(new TranslationWorkerOptions { EnqueueEnabled = false }),
+            _repository);
+
     private MaintenanceEntryService EnabledService(ITranslationRepository repository) =>
         new(
             _db,
@@ -400,9 +638,32 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
         }
     }
 
+    private TranslatedText Translation(
+        Guid entryId,
+        string language,
+        string sourceHash,
+        string text,
+        DateTime createdAt) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            TenantId = _tenantId,
+            EntityType = TranslatableFields.MaintenanceEntry,
+            EntityId = entryId,
+            FieldName = TranslatableFields.Description,
+            SourceHash = sourceHash,
+            TargetLanguage = language,
+            Text = text,
+            CreatedAt = createdAt
+        };
+
     private sealed class ProbeTranslationRepository : ITranslationRepository
     {
-        public int Calls { get; private set; }
+        public int EnqueueCalls { get; private set; }
+
+        public int ReadCalls { get; private set; }
+
+        public string? ReadSourceHash { get; private set; }
 
         public bool ThrowOnEnqueue { get; init; }
 
@@ -417,7 +678,7 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
             IReadOnlyList<EnqueueTranslationRequest> requests,
             CancellationToken cancellationToken)
         {
-            Calls++;
+            EnqueueCalls++;
             ReceivedEnqueueToken = cancellationToken;
             if (ThrowOnEnqueue)
                 throw new InvalidOperationException("translation database unavailable");
@@ -432,8 +693,9 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
             string sourceHash,
             CancellationToken cancellationToken)
         {
-            Calls++;
-            throw new InvalidOperationException("translation storage was accessed");
+            ReadCalls++;
+            ReadSourceHash = sourceHash;
+            return Task.FromResult<IReadOnlyList<NarrativeTranslationRow>>(Array.Empty<NarrativeTranslationRow>());
         }
 
         public Task<IReadOnlyList<TranslationJob>> ClaimPendingAsync(
@@ -472,17 +734,11 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
             CancellationToken cancellationToken) =>
             Reject<TranslatedText?>();
 
-        private Task Reject()
-        {
-            Calls++;
+        private static Task Reject() =>
             throw new InvalidOperationException("translation storage was accessed");
-        }
 
-        private Task<T> Reject<T>()
-        {
-            Calls++;
+        private static Task<T> Reject<T>() =>
             throw new InvalidOperationException("translation storage was accessed");
-        }
     }
 
     private sealed class CountingLogger : ILogger<MaintenanceEntryService>
