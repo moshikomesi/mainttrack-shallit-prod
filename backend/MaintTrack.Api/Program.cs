@@ -132,7 +132,7 @@ var azureTranslatorOptions = builder.Configuration
 if (azureTranslatorOptions.HasApiKey)
 {
     if (!azureTranslatorOptions.IsConfigured)
-        throw new InvalidOperationException("Translation:Azure:Endpoint must be a valid HTTP or HTTPS URI.");
+        throw new InvalidOperationException("Translation:Azure:Endpoint must be a valid HTTPS URI.");
 
     builder.Services.AddHttpClient<ITranslationProvider, AzureTranslatorProvider>((sp, client) =>
     {

@@ -26,10 +26,12 @@ public sealed class AzureTranslatorOptions
 
     public bool HasApiKey => !string.IsNullOrWhiteSpace(ApiKey);
 
+    /// <summary>
+    /// The subscription key is sent in a request header, so only absolute HTTPS endpoints are accepted.
+    /// </summary>
     public bool IsEndpointValid =>
         Uri.TryCreate(Endpoint?.Trim(), UriKind.Absolute, out var uri) &&
-        (string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-         string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase));
+        string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
 
     public bool IsConfigured => HasApiKey && IsEndpointValid;
 }

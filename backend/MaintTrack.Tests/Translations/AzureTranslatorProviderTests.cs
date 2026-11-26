@@ -236,6 +236,86 @@ public sealed class AzureTranslatorProviderTests
             provider.DetectLanguageAsync("Seal leaking", CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData("https://api.cognitive.microsofttranslator.com")]
+    [InlineData("https://api.cognitive.microsofttranslator.com/")]
+    [InlineData("  https://api.cognitive.microsofttranslator.com  ")]
+    [InlineData("HTTPS://westeurope.api.cognitive.microsoft.com")]
+    [InlineData("https://my-resource.cognitiveservices.azure.com")]
+    public void Options_AcceptHttpsEndpoints(string endpoint)
+    {
+        var options = new AzureTranslatorOptions { Endpoint = endpoint, ApiKey = TestApiKey };
+
+        Assert.True(options.IsEndpointValid);
+        Assert.True(options.IsConfigured);
+    }
+
+    [Theory]
+    [InlineData("http://api.cognitive.microsofttranslator.com")]
+    [InlineData("HTTP://api.cognitive.microsofttranslator.com")]
+    [InlineData("http://localhost:5000")]
+    [InlineData("ftp://api.cognitive.microsofttranslator.com")]
+    [InlineData("api.cognitive.microsofttranslator.com")]
+    [InlineData("/translate")]
+    [InlineData("not-a-valid-uri")]
+    [InlineData("https://")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void Options_RejectHttpAndMalformedEndpoints(string? endpoint)
+    {
+        var options = new AzureTranslatorOptions { Endpoint = endpoint!, ApiKey = TestApiKey };
+
+        Assert.False(options.IsEndpointValid);
+        Assert.False(options.IsConfigured);
+    }
+
+    [Fact]
+    public void Options_DefaultGlobalEndpoint_IsHttpsAndValid()
+    {
+        var options = new AzureTranslatorOptions { ApiKey = TestApiKey };
+
+        Assert.Equal("https://api.cognitive.microsofttranslator.com", AzureTranslatorOptions.DefaultEndpoint);
+        Assert.Equal(AzureTranslatorOptions.DefaultEndpoint, options.Endpoint);
+        Assert.True(options.IsEndpointValid);
+        Assert.True(options.IsConfigured);
+        Assert.False(new AzureTranslatorOptions().IsConfigured);
+    }
+
+    [Theory]
+    [InlineData("http://api.cognitive.microsofttranslator.com")]
+    [InlineData("not-a-valid-uri")]
+    [InlineData("")]
+    public void Provider_RejectsHttpAndMalformedEndpoints_WithoutLeakingTheKey(string endpoint)
+    {
+        var options = Options.Create(new AzureTranslatorOptions { Endpoint = endpoint, ApiKey = TestApiKey });
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            new AzureTranslatorProvider(new HttpClient(new RecordingHandler(_ => JsonResponse(HttpStatusCode.OK, "[]"))), options));
+
+        Assert.Contains("HTTPS", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(TestApiKey, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Provider_SendsRequestsOverHttpsToTheConfiguredEndpoint()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(
+            HttpStatusCode.OK,
+            """[{"translations":[{"text":"Seal leaking","to":"en"}]}]"""));
+        var options = Options.Create(new AzureTranslatorOptions
+        {
+            Endpoint = "https://westeurope.api.cognitive.microsoft.com/",
+            ApiKey = TestApiKey
+        });
+        var provider = new AzureTranslatorProvider(new HttpClient(handler), options);
+
+        await provider.TranslateAsync("אטם דולף", null, "en", CancellationToken.None);
+
+        var request = Assert.Single(handler.Requests);
+        Assert.StartsWith("https://westeurope.api.cognitive.microsoft.com/translate?", request.Uri, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ProgramDi_RegistersProviderOnlyWhenApiKeyIsConfigured()
     {
@@ -255,11 +335,23 @@ public sealed class AzureTranslatorProviderTests
             Assert.IsType<AzureTranslatorProvider>(provider);
         }
 
-        Assert.Throws<InvalidOperationException>(() =>
+        // The shipped appsettings.json default (Global endpoint) must keep working with only an API key.
+        using (var globalDefaultFactory = CreateHostFactory(connection, apiKey: TestApiKey, endpoint: null))
+        using (var scope = globalDefaultFactory.Services.CreateScope())
         {
-            using var invalidFactory = CreateHostFactory(connection, apiKey: TestApiKey, endpoint: "not-a-valid-uri");
-            _ = invalidFactory.Services;
-        });
+            Assert.IsType<AzureTranslatorProvider>(scope.ServiceProvider.GetService<ITranslationProvider>());
+        }
+
+        foreach (var invalidEndpoint in new[] { "not-a-valid-uri", "http://api.cognitive.microsofttranslator.com" })
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+            {
+                using var invalidFactory = CreateHostFactory(connection, apiKey: TestApiKey, endpoint: invalidEndpoint);
+                _ = invalidFactory.Services;
+            });
+            Assert.Contains("HTTPS", exception.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(TestApiKey, exception.ToString(), StringComparison.Ordinal);
+        }
     }
 
     private static AzureTranslatorProvider CreateProvider(RecordingHandler handler, string? region)

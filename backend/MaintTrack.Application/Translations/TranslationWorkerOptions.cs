@@ -13,7 +13,8 @@ public sealed class TranslationWorkerOptions
     public int ProcessingLeaseSeconds { get; set; } = 300;
 
     /// <summary>
-    /// When false, maintenance report creation does not enqueue new translation jobs.
+    /// When false, maintenance report creation does not enqueue new translation jobs and the
+    /// background worker neither claims nor processes existing jobs, even if a provider is registered.
     /// Existing stored translations remain readable.
     /// </summary>
     public bool EnqueueEnabled { get; set; }

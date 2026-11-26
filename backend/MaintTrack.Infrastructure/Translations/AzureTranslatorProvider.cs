@@ -34,7 +34,7 @@ public sealed class AzureTranslatorProvider : ITranslationProvider
             throw new InvalidOperationException("Azure Translator API key is not configured.");
 
         if (!value.IsEndpointValid)
-            throw new InvalidOperationException("Azure Translator endpoint must be a valid HTTP or HTTPS URI.");
+            throw new InvalidOperationException("Azure Translator endpoint must be a valid HTTPS URI.");
 
         _httpClient = httpClient;
         _endpoint = value.Endpoint.Trim().TrimEnd('/');

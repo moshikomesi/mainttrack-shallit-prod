@@ -119,6 +119,105 @@ public sealed class TranslationWorkerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ProviderRegistered_EnqueueDisabled_WithPendingJobs_DoesNotClaimOrCallProvider()
+    {
+        await EnqueueAsync("Seal leaking");
+        await EnqueueAsync("Bearing noise");
+        var counting = new CountingTranslationProvider();
+        var services = new ServiceCollection();
+        services.AddDbContext<MaintTrackDbContext>(options => options.UseSqlite(_connection));
+        services.AddScoped<ITenantContext, TenantContext>();
+        services.AddScoped<ITranslationRepository, TranslationRepository>();
+        services.AddSingleton<ITranslationProvider>(counting);
+        await using var provider = services.BuildServiceProvider();
+        var worker = Worker(provider, maxAttempts: 3, enqueueEnabled: false);
+
+        var processed = await worker.ProcessOnceAsync(CancellationToken.None);
+
+        Assert.Equal(0, processed);
+        Assert.Equal(0, counting.TranslateCalls);
+        Assert.Equal(0, counting.DetectCalls);
+        await using var scope = _provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaintTrackDbContext>();
+        var jobs = await db.TranslationJobs.AsNoTracking().ToListAsync();
+        Assert.Equal(2, jobs.Count);
+        Assert.All(jobs, job =>
+        {
+            Assert.Equal(TranslationJobStatus.Pending, job.Status);
+            Assert.Equal(0, job.AttemptCount);
+            Assert.Null(job.ClaimToken);
+        });
+        Assert.Empty(await db.TranslatedTexts.AsNoTracking().ToListAsync());
+    }
+
+    [Fact]
+    public async Task ProviderRegistered_EnqueueDisabled_NeverTouchesTheRepository()
+    {
+        var counting = new CountingTranslationProvider();
+        var services = new ServiceCollection();
+        services.AddSingleton<ITranslationProvider>(counting);
+        services.AddScoped<ITranslationRepository, ThrowingTranslationRepository>();
+        await using var provider = services.BuildServiceProvider();
+        var worker = Worker(provider, maxAttempts: 1, enqueueEnabled: false);
+
+        // ThrowingTranslationRepository fails on any claim, so a clean 0 proves no claim was attempted.
+        Assert.Equal(0, await worker.ProcessOnceAsync(CancellationToken.None));
+        Assert.Equal(0, counting.TranslateCalls);
+
+        using var cancellation = new CancellationTokenSource();
+        var running = worker.RunUntilCancelledAsync(cancellation.Token);
+        await Task.Delay(100);
+        cancellation.Cancel();
+        await running.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(0, counting.TranslateCalls);
+    }
+
+    [Fact]
+    public async Task ProviderRegistered_EnqueueEnabled_StillProcessesPendingJobs()
+    {
+        await EnqueueAsync("Seal leaking");
+        var counting = new CountingTranslationProvider();
+        var services = new ServiceCollection();
+        services.AddDbContext<MaintTrackDbContext>(options => options.UseSqlite(_connection));
+        services.AddScoped<ITenantContext, TenantContext>();
+        services.AddScoped<ITranslationRepository, TranslationRepository>();
+        services.AddSingleton<ITranslationProvider>(counting);
+        await using var provider = services.BuildServiceProvider();
+        var worker = Worker(provider, maxAttempts: 3, enqueueEnabled: true);
+
+        var processed = await worker.ProcessOnceAsync(CancellationToken.None);
+
+        Assert.Equal(1, processed);
+        Assert.Equal(1, counting.TranslateCalls);
+        await using var scope = _provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaintTrackDbContext>();
+        Assert.Equal(TranslationJobStatus.Completed, (await db.TranslationJobs.AsNoTracking().SingleAsync()).Status);
+        Assert.Equal("he:Seal leaking", (await db.TranslatedTexts.AsNoTracking().SingleAsync()).Text);
+    }
+
+    [Fact]
+    public async Task WithoutProvider_EnqueueEnabledOrDisabled_LeavesJobsPending()
+    {
+        await EnqueueAsync("Seal leaking");
+        var services = new ServiceCollection();
+        services.AddDbContext<MaintTrackDbContext>(options => options.UseSqlite(_connection));
+        services.AddScoped<ITenantContext, TenantContext>();
+        services.AddScoped<ITranslationRepository, TranslationRepository>();
+        await using var provider = services.BuildServiceProvider();
+
+        foreach (var enabled in new[] { true, false })
+        {
+            var worker = Worker(provider, maxAttempts: 1, enqueueEnabled: enabled);
+            Assert.Equal(0, await worker.ProcessOnceAsync(CancellationToken.None));
+        }
+
+        await using var scope = _provider.CreateAsyncScope();
+        var job = await scope.ServiceProvider.GetRequiredService<MaintTrackDbContext>().TranslationJobs.SingleAsync();
+        Assert.Equal(TranslationJobStatus.Pending, job.Status);
+        Assert.Equal(0, job.AttemptCount);
+    }
+
+    [Fact]
     public async Task WhitespaceProviderOutput_FailsJobAndDoesNotStoreBlankText()
     {
         await EnqueueAsync("Seal leaking");
@@ -337,7 +436,10 @@ public sealed class TranslationWorkerTests : IAsyncDisposable
             CancellationToken.None);
     }
 
-    private static TranslationWorker Worker(IServiceProvider provider, int maxAttempts) =>
+    private static TranslationWorker Worker(
+        IServiceProvider provider,
+        int maxAttempts,
+        bool enqueueEnabled = true) =>
         new(
             provider.GetRequiredService<IServiceScopeFactory>(),
             new TranslationWorkerOptions
@@ -345,9 +447,43 @@ public sealed class TranslationWorkerTests : IAsyncDisposable
                 PollingIntervalSeconds = 1,
                 BatchSize = 10,
                 MaxAttempts = maxAttempts,
-                ProcessingLeaseSeconds = 300
+                ProcessingLeaseSeconds = 300,
+                EnqueueEnabled = enqueueEnabled
             },
             NullLogger<TranslationWorker>.Instance);
+
+    private sealed class CountingTranslationProvider : ITranslationProvider
+    {
+        public int TranslateCalls { get; private set; }
+
+        public int DetectCalls { get; private set; }
+
+        public Task<string> TranslateAsync(
+            string text,
+            string? sourceLanguage,
+            string targetLanguage,
+            CancellationToken cancellationToken)
+        {
+            TranslateCalls++;
+            return Task.FromResult($"{targetLanguage}:{text}");
+        }
+
+        public Task<string?> DetectLanguageAsync(string text, CancellationToken cancellationToken)
+        {
+            DetectCalls++;
+            return Task.FromResult<string?>(null);
+        }
+
+        public Task<TranslationResult> TranslateWithMetadataAsync(
+            string text,
+            string? sourceLanguage,
+            string targetLanguage,
+            CancellationToken cancellationToken)
+        {
+            TranslateCalls++;
+            return Task.FromResult(new TranslationResult($"{targetLanguage}:{text}"));
+        }
+    }
 
     private sealed class ScriptedTranslationProvider : ITranslationProvider
     {

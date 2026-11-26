@@ -9,7 +9,8 @@ namespace MaintTrack.Infrastructure.Translations;
 
 /// <summary>
 /// Polls translation jobs outside the request pipeline.
-/// Without a registered <see cref="ITranslationProvider"/> it does not read or write translation rows.
+/// Without <c>Translation:EnqueueEnabled=true</c> or without a registered <see cref="ITranslationProvider"/>
+/// it does not claim, read, or write translation rows.
 /// </summary>
 public sealed class TranslationWorker : BackgroundService
 {
@@ -65,6 +66,13 @@ public sealed class TranslationWorker : BackgroundService
 
     internal async Task<int> ProcessOnceAsync(CancellationToken cancellationToken)
     {
+        // Registering a provider must never start spending on pending jobs by itself.
+        if (!_options.EnqueueEnabled)
+        {
+            _logger.LogDebug("Translation processing is disabled (Translation:EnqueueEnabled=false).");
+            return 0;
+        }
+
         List<ClaimedJob> claimed;
         await using (var claimScope = _scopeFactory.CreateAsyncScope())
         {
