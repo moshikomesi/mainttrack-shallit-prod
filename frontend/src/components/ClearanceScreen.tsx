@@ -4,7 +4,9 @@ import { useLanguage } from '../context/LanguageContext';
 import { getHierarchy, type HierarchyArray } from '../services/hierarchyService';
 import { getClearanceAccess, getClearanceQueue } from '../services/clearanceService';
 import type { ClearanceAccess, ClearanceItem, ClearanceStatus } from '../types/clearance';
-import { formatMaintenanceDescriptionDisplay } from '../services/maintenanceDescription';
+import { localizeMaintenanceDescription, viewMaintenanceDescription } from '../services/maintenanceDescription';
+import { useMaintenanceTranslations } from '../hooks/useMaintenanceTranslations';
+import type { MaintenanceTranslationsResponse } from '../types/maintenance';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/formatDate';
 import { resolveCatalogDisplayValue } from '../utils/resolveCatalogDisplayValue';
 import { AppHeader } from './AppHeader';
@@ -26,25 +28,41 @@ interface ClearanceScreenProps {
   onOpenReport: (item: ClearanceItem) => void;
 }
 
-/** Original-language Clearance body: component (if any) then narrative; never shows sentinels. */
+/** Clearance body in the UI language: localized component (if any) then one narrative; never shows sentinels. */
 function ClearanceMaintenanceDescription({
   description,
   maintenanceTypeCode,
+  translation,
+  language,
   translate,
 }: {
   description: string;
   maintenanceTypeCode: string | null | undefined;
+  translation: MaintenanceTranslationsResponse | null;
+  language: string;
   translate: (key: string) => string;
 }) {
-  const display = formatMaintenanceDescriptionDisplay(description, maintenanceTypeCode, translate);
-  const lines: string[] = [];
-  if (display.componentLabel) lines.push(display.componentLabel);
-  if (display.narrative) lines.push(display.narrative);
-  if (lines.length === 0) return null;
+  const display = localizeMaintenanceDescription(
+    description,
+    maintenanceTypeCode,
+    translation,
+    language,
+    translate
+  );
+  if (!display.componentLabel && !display.narrative) return null;
 
   return (
-    <div className="text-sm text-neutral-700" style={{ whiteSpace: 'pre-wrap' }}>
-      {lines.join('\n')}
+    <div className="text-sm text-neutral-700 space-y-1">
+      {display.componentLabel && <div>{display.componentLabel}</div>}
+      {display.narrative && (
+        <div
+          dir="auto"
+          style={{ whiteSpace: 'pre-wrap' }}
+          lang={display.translated ? language : undefined}
+        >
+          {display.narrative}
+        </div>
+      )}
     </div>
   );
 }
@@ -143,6 +161,22 @@ export function ClearanceScreen({ onBack, onOpenReport }: ClearanceScreenProps) 
     },
     [activeArrays, t]
   );
+
+  // Only maintenance entries with a narrative are translated; Morning Round V2 items never are.
+  const translatableEntryIds = useMemo(
+    () =>
+      state.kind !== 'ready'
+        ? []
+        : state.items.flatMap((item) =>
+            item.sourceType === 'maintenance_entry' &&
+            item.maintenanceEntryId &&
+            (viewMaintenanceDescription(item.description)?.narrative.length ?? 0) > 0
+              ? [item.maintenanceEntryId]
+              : []
+          ),
+    [state]
+  );
+  const getMaintenanceTranslation = useMaintenanceTranslations(translatableEntryIds);
 
   const totalPages =
     state.kind === 'ready' ? Math.max(1, Math.ceil(state.totalCount / PAGE_SIZE)) : 1;
@@ -315,6 +349,8 @@ export function ClearanceScreen({ onBack, onOpenReport }: ClearanceScreenProps) 
                   <ClearanceMaintenanceDescription
                     description={item.description}
                     maintenanceTypeCode={item.maintenanceTypeCode}
+                    translation={getMaintenanceTranslation(item.maintenanceEntryId)}
+                    language={language}
                     translate={t}
                   />
                 )}

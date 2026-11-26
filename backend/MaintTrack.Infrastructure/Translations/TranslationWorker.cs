@@ -138,20 +138,41 @@ public sealed class TranslationWorker : BackgroundService
 
         var provider = scope.ServiceProvider.GetRequiredService<ITranslationProvider>();
         var repository = scope.ServiceProvider.GetRequiredService<ITranslationRepository>();
-        var translated = await provider.TranslateAsync(
+        var translation = await provider.TranslateWithMetadataAsync(
             job.SourceText,
             sourceLanguage: null,
             job.TargetLanguage,
             cancellationToken);
 
-        if (translated is null)
+        if (translation is null || string.IsNullOrWhiteSpace(translation.Text))
             throw new InvalidOperationException("Translation provider returned no text.");
+
+        var detectedSource = TranslationLanguages.Normalize(translation.DetectedSourceLanguage);
+        if (detectedSource is not null &&
+            string.Equals(detectedSource, job.TargetLanguage, StringComparison.Ordinal))
+        {
+            var skipped = await repository.CompleteWithoutTranslationAsync(
+                job.Id,
+                job.ClaimToken,
+                job.SourceHash,
+                cancellationToken);
+
+            if (skipped != TranslationCompletionResult.Completed)
+            {
+                _logger.LogInformation(
+                    "Same-language translation job {JobId} was not marked complete ({Result}).",
+                    job.Id,
+                    skipped);
+            }
+
+            return;
+        }
 
         var result = await repository.CompleteAsync(
             job.Id,
             job.ClaimToken,
             job.SourceHash,
-            translated,
+            translation.Text,
             cancellationToken);
 
         if (result != TranslationCompletionResult.Completed)

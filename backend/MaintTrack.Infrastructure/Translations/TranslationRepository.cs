@@ -198,7 +198,7 @@ public sealed class TranslationRepository : ITranslationRepository
         }
     }
 
-    public async Task<TranslationCompletionResult> CompleteAsync(
+    public Task<TranslationCompletionResult> CompleteAsync(
         Guid jobId,
         Guid claimToken,
         string sourceHash,
@@ -208,6 +208,27 @@ public sealed class TranslationRepository : ITranslationRepository
         ArgumentNullException.ThrowIfNull(sourceHash);
         ArgumentNullException.ThrowIfNull(translatedText);
 
+        return CompleteCoreAsync(jobId, claimToken, sourceHash, translatedText, cancellationToken);
+    }
+
+    public Task<TranslationCompletionResult> CompleteWithoutTranslationAsync(
+        Guid jobId,
+        Guid claimToken,
+        string sourceHash,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sourceHash);
+
+        return CompleteCoreAsync(jobId, claimToken, sourceHash, translatedText: null, cancellationToken);
+    }
+
+    private async Task<TranslationCompletionResult> CompleteCoreAsync(
+        Guid jobId,
+        Guid claimToken,
+        string sourceHash,
+        string? translatedText,
+        CancellationToken cancellationToken)
+    {
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
         var job = await _db.TranslationJobs
             .AsNoTracking()
@@ -262,34 +283,37 @@ public sealed class TranslationRepository : ITranslationRepository
 
         DetachJobs();
         var now = DateTime.UtcNow;
-        var existing = await _db.TranslatedTexts.FirstOrDefaultAsync(
-            item => item.TenantId == job.TenantId
-                && item.EntityType == job.EntityType
-                && item.EntityId == job.EntityId
-                && item.FieldName == job.FieldName
-                && item.SourceHash == job.SourceHash
-                && item.TargetLanguage == job.TargetLanguage,
-            cancellationToken);
+        if (translatedText is not null)
+        {
+            var existing = await _db.TranslatedTexts.FirstOrDefaultAsync(
+                item => item.TenantId == job.TenantId
+                    && item.EntityType == job.EntityType
+                    && item.EntityId == job.EntityId
+                    && item.FieldName == job.FieldName
+                    && item.SourceHash == job.SourceHash
+                    && item.TargetLanguage == job.TargetLanguage,
+                cancellationToken);
 
-        if (existing is null)
-        {
-            _db.TranslatedTexts.Add(new TranslatedText
+            if (existing is null)
             {
-                Id = Guid.NewGuid(),
-                TenantId = job.TenantId,
-                EntityType = job.EntityType,
-                EntityId = job.EntityId,
-                FieldName = job.FieldName,
-                SourceHash = job.SourceHash,
-                TargetLanguage = job.TargetLanguage,
-                Text = translatedText,
-                CreatedAt = now
-            });
-        }
-        else
-        {
-            existing.Text = translatedText;
-            existing.UpdatedAt = now;
+                _db.TranslatedTexts.Add(new TranslatedText
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = job.TenantId,
+                    EntityType = job.EntityType,
+                    EntityId = job.EntityId,
+                    FieldName = job.FieldName,
+                    SourceHash = job.SourceHash,
+                    TargetLanguage = job.TargetLanguage,
+                    Text = translatedText,
+                    CreatedAt = now
+                });
+            }
+            else
+            {
+                existing.Text = translatedText;
+                existing.UpdatedAt = now;
+            }
         }
 
         var completed = await _db.TranslationJobs
@@ -312,7 +336,9 @@ public sealed class TranslationRepository : ITranslationRepository
             return TranslationCompletionResult.Stale;
         }
 
-        await _db.SaveChangesAsync(cancellationToken);
+        if (translatedText is not null)
+            await _db.SaveChangesAsync(cancellationToken);
+
         await transaction.CommitAsync(cancellationToken);
         return TranslationCompletionResult.Completed;
     }

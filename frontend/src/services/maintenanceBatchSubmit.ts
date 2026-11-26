@@ -1,5 +1,5 @@
 import type { CreateMaintenanceEntryRequest, MaintenanceLogEntry } from '../types/maintenance';
-import { buildMaintenanceLogV1Description } from './maintenanceDescription';
+import { buildMaintenanceDescriptionForSubmit } from './maintenanceDescription';
 import { createMaintenance, createMaintenanceWithFile } from './maintenanceService';
 
 export type PerRowSubmitResult =
@@ -39,7 +39,7 @@ function buildPayload(
     imageUrl,
   };
   if (isOther) {
-    return { ...base, description: buildMaintenanceLogV1Description(row.fault) };
+    return { ...base, description: buildMaintenanceDescriptionForSubmit(row.fault) };
   }
   return { ...base };
 }

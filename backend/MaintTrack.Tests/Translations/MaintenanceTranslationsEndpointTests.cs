@@ -59,6 +59,22 @@ public sealed class MaintenanceTranslationsEndpointTests : IClassFixture<Mainten
     }
 
     [Fact]
+    public async Task SourceLanguageWithoutJob_ReturnsOriginalTextAndTwoCompletedTranslations()
+    {
+        var response = await _fixture.Client.GetAsync($"/api/maintenance/{_fixture.SourceSkippedEntryId}/translations");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(body);
+        Assert.Equal("ซีลรั่ว", document.RootElement.GetProperty("originalText").GetString());
+        var translations = document.RootElement.GetProperty("translations");
+        Assert.Equal(3, translations.GetArrayLength());
+        AssertStatus(translations[0], "he", "completed", "אטם דולף");
+        AssertStatus(translations[1], "en", "completed", "Seal leaking");
+        AssertStatus(translations[2], "th", "unavailable", null);
+    }
+
+    [Fact]
     public async Task MissingReport_Returns404_WithoutReadingTranslations()
     {
         var before = _fixture.NarrativeReads;
@@ -115,6 +131,7 @@ public sealed class MaintenanceTranslationsReadFixture : IAsyncLifetime
 
     public HttpClient Client { get; private set; } = null!;
     public Guid EntryId { get; private set; }
+    public Guid SourceSkippedEntryId { get; private set; }
     public Guid OtherTenantEntryId { get; private set; }
     public Guid SecretClaimToken { get; } = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
     public int NarrativeReads => _counter.Count;
@@ -142,6 +159,7 @@ public sealed class MaintenanceTranslationsReadFixture : IAsyncLifetime
         var otherTenantId = Guid.NewGuid();
         var userId = Guid.NewGuid();
         EntryId = Guid.NewGuid();
+        SourceSkippedEntryId = Guid.NewGuid();
         OtherTenantEntryId = Guid.NewGuid();
         var machineId = Guid.NewGuid();
         var otherMachineId = Guid.NewGuid();
@@ -204,6 +222,19 @@ public sealed class MaintenanceTranslationsReadFixture : IAsyncLifetime
             },
             new MaintenanceEntry
             {
+                Id = SourceSkippedEntryId,
+                TenantId = tenantId,
+                MachineId = machineId,
+                Date = new DateOnly(2026, 11, 25),
+                Description = "maintenanceLog.v2\nmaintenanceComponent.bearing\nซีลรั่ว",
+                EmployeeName = "Worker",
+                WorkHours = 1,
+                IsSafeToOperate = true,
+                CreatedByUserId = userId,
+                CreatedAt = now
+            },
+            new MaintenanceEntry
+            {
                 Id = OtherTenantEntryId,
                 TenantId = otherTenantId,
                 MachineId = otherMachineId,
@@ -215,22 +246,51 @@ public sealed class MaintenanceTranslationsReadFixture : IAsyncLifetime
                 CreatedByUserId = userId,
                 CreatedAt = now
             });
+        var thaiNarrative = "ซีลรั่ว";
+        var thaiHash = SourceTextHasher.Compute(thaiNarrative);
         db.TranslationJobs.AddRange(
             Job(tenantId, EntryId, hash, narrative, TranslationLanguages.Hebrew, TranslationJobStatus.Processing, SecretClaimToken, null, now),
             Job(tenantId, EntryId, hash, narrative, TranslationLanguages.English, TranslationJobStatus.Completed, null, null, now),
-            Job(tenantId, EntryId, hash, narrative, TranslationLanguages.Thai, TranslationJobStatus.Failed, Guid.NewGuid(), "provider-secret-do-not-leak", now));
-        db.TranslatedTexts.Add(new TranslatedText
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantId,
-            EntityType = TranslatableFields.MaintenanceEntry,
-            EntityId = EntryId,
-            FieldName = TranslatableFields.Description,
-            SourceHash = hash,
-            TargetLanguage = TranslationLanguages.English,
-            Text = "Translated seal note",
-            CreatedAt = now
-        });
+            Job(tenantId, EntryId, hash, narrative, TranslationLanguages.Thai, TranslationJobStatus.Failed, Guid.NewGuid(), "provider-secret-do-not-leak", now),
+            Job(tenantId, SourceSkippedEntryId, thaiHash, thaiNarrative, TranslationLanguages.Hebrew, TranslationJobStatus.Completed, null, null, now),
+            Job(tenantId, SourceSkippedEntryId, thaiHash, thaiNarrative, TranslationLanguages.English, TranslationJobStatus.Completed, null, null, now));
+        db.TranslatedTexts.AddRange(
+            new TranslatedText
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                EntityType = TranslatableFields.MaintenanceEntry,
+                EntityId = EntryId,
+                FieldName = TranslatableFields.Description,
+                SourceHash = hash,
+                TargetLanguage = TranslationLanguages.English,
+                Text = "Translated seal note",
+                CreatedAt = now
+            },
+            new TranslatedText
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                EntityType = TranslatableFields.MaintenanceEntry,
+                EntityId = SourceSkippedEntryId,
+                FieldName = TranslatableFields.Description,
+                SourceHash = thaiHash,
+                TargetLanguage = TranslationLanguages.Hebrew,
+                Text = "אטם דולף",
+                CreatedAt = now
+            },
+            new TranslatedText
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                EntityType = TranslatableFields.MaintenanceEntry,
+                EntityId = SourceSkippedEntryId,
+                FieldName = TranslatableFields.Description,
+                SourceHash = thaiHash,
+                TargetLanguage = TranslationLanguages.English,
+                Text = "Seal leaking",
+                CreatedAt = now
+            });
         await db.SaveChangesAsync();
         TranslationApiHost.Authenticate(Client, _factory.Services, tenantId, userId, (int)UserRole.Worker);
     }
@@ -619,6 +679,13 @@ internal sealed class CountingTranslationRepository : ITranslationRepository
         CancellationToken cancellationToken) =>
         _inner.CompleteAsync(jobId, claimToken, sourceHash, translatedText, cancellationToken);
 
+    public Task<TranslationCompletionResult> CompleteWithoutTranslationAsync(
+        Guid jobId,
+        Guid claimToken,
+        string sourceHash,
+        CancellationToken cancellationToken) =>
+        _inner.CompleteWithoutTranslationAsync(jobId, claimToken, sourceHash, cancellationToken);
+
     public Task<bool> FailAsync(
         Guid jobId,
         Guid claimToken,
@@ -673,6 +740,13 @@ internal sealed class ThrowingTranslationRepository : ITranslationRepository
         Guid claimToken,
         string sourceHash,
         string translatedText,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("translation storage was accessed");
+
+    public Task<TranslationCompletionResult> CompleteWithoutTranslationAsync(
+        Guid jobId,
+        Guid claimToken,
+        string sourceHash,
         CancellationToken cancellationToken) =>
         throw new InvalidOperationException("translation storage was accessed");
 

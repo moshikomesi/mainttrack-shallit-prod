@@ -36,8 +36,13 @@ import {
 import { resolveMaintenanceReportArrayLabel } from '../utils/resolveMaintenanceReportArray';
 import {
   formatMaintenanceDescriptionDisplay,
-  selectNarrativeTranslation,
+  localizeMaintenanceDescription,
 } from '../services/maintenanceDescription';
+import {
+  hasPendingTranslations,
+  MAX_PENDING_REFRESHES,
+  PENDING_REFRESH_INTERVAL_MS,
+} from '../services/maintenanceTranslationCache';
 import { resolveCatalogDisplayValue } from '../utils/resolveCatalogDisplayValue';
 import type { MorningRoundDto, MorningRoundTemplateItemDto } from '../types/morningRound';
 import type { MorningRoundV2Report } from '../types/morningRoundV2Report';
@@ -519,7 +524,7 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     );
   }, [hierarchy, treatmentReport?.arrayId, treatmentReport?.machineId, t]);
 
-  const maintenanceDescription = useMemo(
+  const storedMaintenanceDescription = useMemo(
     () =>
       formatMaintenanceDescriptionDisplay(
         maintenanceReport?.description,
@@ -535,8 +540,8 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
 
   /** V1, V2, and legacy narratives. A component-only description has nothing to translate. */
   const translatableNarrative =
-    isCurrentMaintenanceReport && maintenanceDescription.narrative.length > 0
-      ? maintenanceDescription.narrative
+    isCurrentMaintenanceReport && storedMaintenanceDescription.narrative.length > 0
+      ? storedMaintenanceDescription.narrative
       : '';
 
   useEffect(() => {
@@ -544,25 +549,53 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
     if (reportType !== 'maintenance' || !translatableNarrative) return;
 
     let cancelled = false;
-    getMaintenanceTranslations(reportId)
-      .then((response) => {
-        if (!cancelled) setMaintenanceTranslations({ reportId, response });
-      })
-      .catch((err) => {
-        // The original narrative stays visible; translations are optional.
-        if (!cancelled) console.error(err);
-      });
+    let timerId: ReturnType<typeof setTimeout> | undefined;
+    let refreshesRemaining = MAX_PENDING_REFRESHES;
+
+    const loadTranslations = () => {
+      getMaintenanceTranslations(reportId)
+        .then((response) => {
+          if (cancelled) return;
+          setMaintenanceTranslations({ reportId, response });
+          if (hasPendingTranslations(response) && refreshesRemaining > 0) {
+            refreshesRemaining -= 1;
+            timerId = setTimeout(loadTranslations, PENDING_REFRESH_INTERVAL_MS);
+          }
+        })
+        .catch((err) => {
+          // The original narrative stays visible; translations are optional.
+          if (!cancelled) console.error(err);
+        });
+    };
+
+    loadTranslations();
     return () => {
       cancelled = true;
+      if (timerId !== undefined) clearTimeout(timerId);
     };
   }, [reportId, reportType, translatableNarrative]);
 
-  const narrativeTranslation = useMemo(
+  /** The one description shown: a completed translation for the UI language replaces the stored narrative. */
+  const maintenanceDescription = useMemo(
     () =>
-      maintenanceTranslations?.reportId === reportId
-        ? selectNarrativeTranslation(maintenanceTranslations.response, translatableNarrative, language)
-        : null,
-    [maintenanceTranslations, reportId, translatableNarrative, language]
+      localizeMaintenanceDescription(
+        maintenanceReport?.description,
+        maintenanceReport?.maintenanceTypeCode,
+        isCurrentMaintenanceReport && maintenanceTranslations?.reportId === reportId
+          ? maintenanceTranslations.response
+          : null,
+        language,
+        t
+      ),
+    [
+      maintenanceReport?.description,
+      maintenanceReport?.maintenanceTypeCode,
+      isCurrentMaintenanceReport,
+      maintenanceTranslations,
+      reportId,
+      language,
+      t,
+    ]
   );
 
   /** At most 1 primary + 2 additional = 3 images total. */
@@ -912,14 +945,12 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                         {maintenanceDescription.narrative.length > 0 && (
                           <div>
                             <span className="text-neutral-600">{t('log.fault')}: </span>
-                            <span className="text-neutral-900">{maintenanceDescription.narrative}</span>
-                          </div>
-                        )}
-                        {narrativeTranslation && (
-                          <div>
-                            <span className="text-neutral-600">{t('details.faultTranslation')}: </span>
-                            <span className="text-neutral-900" lang={language}>
-                              {narrativeTranslation}
+                            <span
+                              className="text-neutral-900"
+                              dir="auto"
+                              lang={maintenanceDescription.translated ? language : undefined}
+                            >
+                              {maintenanceDescription.narrative}
                             </span>
                           </div>
                         )}
@@ -956,14 +987,12 @@ export function ReportDetailsScreen({ reportId, reportType, onBack }: ReportDeta
                         {maintenanceDescription.narrative.length > 0 && (
                           <div>
                             <span className="text-neutral-600">{t('log.fault')}: </span>
-                            <span className="text-neutral-900">{maintenanceDescription.narrative}</span>
-                          </div>
-                        )}
-                        {narrativeTranslation && (
-                          <div>
-                            <span className="text-neutral-600">{t('details.faultTranslation')}: </span>
-                            <span className="text-neutral-900" lang={language}>
-                              {narrativeTranslation}
+                            <span
+                              className="text-neutral-900"
+                              dir="auto"
+                              lang={maintenanceDescription.translated ? language : undefined}
+                            >
+                              {maintenanceDescription.narrative}
                             </span>
                           </div>
                         )}

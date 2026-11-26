@@ -544,6 +544,78 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
             await _db.AuditLogs.CountAsync(log => log.EntityId == entryId && log.Action == "maintenance_created"));
     }
 
+    [Theory]
+    [InlineData("he", new[] { TranslationLanguages.English, TranslationLanguages.Thai })]
+    [InlineData("en", new[] { TranslationLanguages.Hebrew, TranslationLanguages.Thai })]
+    [InlineData("th", new[] { TranslationLanguages.Hebrew, TranslationLanguages.English })]
+    public async Task CreateAsync_WithDetectedSupportedSourceLanguage_EnqueuesOnlyTheOtherTwoLanguagesOnce(
+        string detectedLanguage,
+        string[] expectedTargets)
+    {
+        var provider = new ScriptedDetectingProvider(detectedLanguage);
+        var service = EnabledService(_repository, provider);
+        var description = $"maintenanceLog.v2\nmaintenanceComponent.driveShaft\n{Narrative}";
+
+        var entryId = await CreateAsync(description, service);
+
+        Assert.Equal(1, provider.DetectCalls);
+        var jobs = await JobsForAsync(entryId);
+        Assert.Equal(2, jobs.Count);
+        Assert.Equal(
+            expectedTargets.OrderBy(language => language).ToArray(),
+            jobs.Select(job => job.TargetLanguage).OrderBy(language => language).ToArray());
+        Assert.DoesNotContain(jobs, job => job.TargetLanguage == detectedLanguage);
+        Assert.All(jobs, job => Assert.Equal(Narrative, job.SourceText));
+
+        var translations = await service.GetTranslationsAsync(entryId, CancellationToken.None);
+        Assert.NotNull(translations);
+        Assert.Equal(Narrative, translations!.OriginalText);
+        var skippedSource = Assert.Single(translations.Translations, item => item.Language == detectedLanguage);
+        Assert.Equal(MaintenanceTranslationPublicStatus.Unavailable, skippedSource.Status);
+        Assert.Null(skippedSource.Text);
+        foreach (var target in expectedTargets)
+        {
+            var pending = Assert.Single(translations.Translations, item => item.Language == target);
+            Assert.Equal(MaintenanceTranslationPublicStatus.Pending, pending.Status);
+        }
+    }
+
+    [Theory]
+    [InlineData("fr")]
+    [InlineData("ar")]
+    [InlineData(null)]
+    public async Task CreateAsync_WithUnsupportedOrUnknownDetectedLanguage_EnqueuesAllThreeLanguages(
+        string? detectedLanguage)
+    {
+        var provider = new ScriptedDetectingProvider(detectedLanguage);
+        var service = EnabledService(_repository, provider);
+        var description = $"maintenanceLog.v2\nmaintenanceComponent.driveShaft\n{Narrative}";
+
+        var entryId = await CreateAsync(description, service);
+
+        Assert.Equal(1, provider.DetectCalls);
+        var jobs = await JobsForAsync(entryId);
+        Assert.Equal(3, jobs.Count);
+        Assert.Equal(
+            new[] { TranslationLanguages.English, TranslationLanguages.Hebrew, TranslationLanguages.Thai },
+            jobs.Select(job => job.TargetLanguage).OrderBy(language => language).ToArray());
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenDetectionThrows_FallsBackToAllThreeLanguages_WithoutFailingReport()
+    {
+        var provider = new ScriptedDetectingProvider(null, throwOnDetect: true);
+        var service = EnabledService(_repository, provider);
+        var description = $"maintenanceLog.v2\nmaintenanceComponent.driveShaft\n{Narrative}";
+
+        var entryId = await CreateAsync(description, service);
+
+        Assert.Equal(1, provider.DetectCalls);
+        var jobs = await JobsForAsync(entryId);
+        Assert.Equal(3, jobs.Count);
+        Assert.Equal(description, (await EntryAsync(entryId)).Description);
+    }
+
     private CreateMaintenanceEntryRequest Request(string description) =>
         new()
         {
@@ -581,7 +653,9 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
             Options.Create(new TranslationWorkerOptions { EnqueueEnabled = false }),
             _repository);
 
-    private MaintenanceEntryService EnabledService(ITranslationRepository repository) =>
+    private MaintenanceEntryService EnabledService(
+        ITranslationRepository repository,
+        ITranslationProvider? translationProvider = null) =>
         new(
             _db,
             _tenantContext,
@@ -589,7 +663,8 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
             new TrackingFileStorage(),
             NullLogger<MaintenanceEntryService>.Instance,
             Options.Create(new TranslationWorkerOptions { EnqueueEnabled = true }),
-            repository);
+            repository,
+            translationProvider);
 
     private Task<Guid> CreateAsync(string description, MaintenanceEntryService service) =>
         service.CreateAsync(new CreateMaintenanceEntryRequest
@@ -717,6 +792,13 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
             CancellationToken cancellationToken) =>
             Reject<TranslationCompletionResult>();
 
+        public Task<TranslationCompletionResult> CompleteWithoutTranslationAsync(
+            Guid jobId,
+            Guid claimToken,
+            string sourceHash,
+            CancellationToken cancellationToken) =>
+            Reject<TranslationCompletionResult>();
+
         public Task<bool> FailAsync(
             Guid jobId,
             Guid claimToken,
@@ -739,6 +821,36 @@ public sealed class MaintenanceTranslationEnqueueTests : IAsyncLifetime
 
         private static Task<T> Reject<T>() =>
             throw new InvalidOperationException("translation storage was accessed");
+    }
+
+    private sealed class ScriptedDetectingProvider : ITranslationProvider
+    {
+        private readonly string? _detectedLanguage;
+        private readonly bool _throwOnDetect;
+
+        public ScriptedDetectingProvider(string? detectedLanguage, bool throwOnDetect = false)
+        {
+            _detectedLanguage = detectedLanguage;
+            _throwOnDetect = throwOnDetect;
+        }
+
+        public int DetectCalls { get; private set; }
+
+        public Task<string> TranslateAsync(
+            string text,
+            string? sourceLanguage,
+            string targetLanguage,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<string?> DetectLanguageAsync(string text, CancellationToken cancellationToken)
+        {
+            DetectCalls++;
+            if (_throwOnDetect)
+                throw new HttpRequestException("Simulated Azure outage");
+
+            return Task.FromResult(_detectedLanguage);
+        }
     }
 
     private sealed class CountingLogger : ILogger<MaintenanceEntryService>

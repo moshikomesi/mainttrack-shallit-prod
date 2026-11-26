@@ -22,9 +22,10 @@ import type { TreatmentDto } from '../types/treatment';
 import { formatDisplayDate, formatDisplayDateTime, formatFormDate } from '../utils/formatDate';
 import { formatTechnician } from '../utils/formatTechnician';
 import {
-  formatMaintenanceDescriptionDisplay,
+  localizeMaintenanceDescription,
   viewMaintenanceDescription,
 } from '../services/maintenanceDescription';
+import { useMaintenanceTranslations } from '../hooks/useMaintenanceTranslations';
 import { resolveCatalogKey } from '../utils/resolveCatalogDisplayValue';
 import type { MorningRoundReportVariant, ReportListItem, ReportsListReturnContext, ReportsListScreenProps } from '../types/reports';
 
@@ -316,6 +317,18 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
       return true;
     });
   }, [filteredReports, machineIdsForSelectedArray, selectedComponentKey, selectedType]);
+
+  // Only entries with a narrative have anything to translate. Responses are cached per entry id.
+  const translatableMaintenanceIds = useMemo(
+    () =>
+      selectedType !== 'maintenance'
+        ? []
+        : filteredMaintenanceReports
+            .filter((r) => (viewMaintenanceDescription(r.description)?.narrative.length ?? 0) > 0)
+            .map((r) => r.id),
+    [filteredMaintenanceReports, selectedType]
+  );
+  const getMaintenanceTranslation = useMaintenanceTranslations(translatableMaintenanceIds);
 
   const showMorningVariantPicker = selectedType === 'morning' && morningVariant === null;
   const showMorningReportList = selectedType === 'morning' && morningVariant !== null;
@@ -731,9 +744,11 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                       </div>
                       <div className="text-sm text-neutral-700">
                         {(() => {
-                          const display = formatMaintenanceDescriptionDisplay(
+                          const display = localizeMaintenanceDescription(
                             report.description,
                             report.maintenanceTypeCode,
+                            getMaintenanceTranslation(report.id),
+                            language,
                             t
                           );
                           if (display.version === 'v2' || display.version === 'legacy') {
@@ -746,17 +761,29 @@ export function ReportsListScreen({ onSelectReport, onBack, userRoleId }: Report
                                     </span>
                                   )}
                                   {display.narrative ? (
-                                    <span className="text-neutral-600">
-                                      {display.componentLabel ? ' — ' : ''}
-                                      {display.narrative}
-                                    </span>
+                                    <>
+                                      {display.componentLabel ? (
+                                        <span className="text-neutral-600"> — </span>
+                                      ) : null}
+                                      <span
+                                        className="text-neutral-600"
+                                        dir="auto"
+                                        lang={display.translated ? language : undefined}
+                                      >
+                                        {display.narrative}
+                                      </span>
+                                    </>
                                   ) : null}
                                 </>
                               );
                             }
                           }
                           return (
-                            <span className="text-neutral-700 line-clamp-2">
+                            <span
+                              className="text-neutral-700 line-clamp-2"
+                              dir={display.narrative ? 'auto' : undefined}
+                              lang={display.translated ? language : undefined}
+                            >
                               {display.narrative ||
                                 (report.maintenanceTypeCode
                                   ? t(`maintenanceType.${report.maintenanceTypeCode}`)
