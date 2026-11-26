@@ -29,6 +29,22 @@ export function buildMaintenanceLogV1Description(fault: string): string {
   return `${MAINTENANCE_LOG_V1_SENTINEL}\n${narrative}`;
 }
 
+/**
+ * Description to store for a submitted "other" row.
+ * Text that already starts with the V1 or V2 sentinel line is a finished description and is
+ * returned as is, so a V2 description is never wrapped a second time. Any other text is
+ * ordinary free text and is marked V1. Blank text stays blank.
+ */
+export function buildMaintenanceDescriptionForSubmit(fault: string): string {
+  const text = fault.trim();
+  if (!text) return '';
+  const firstLine = normalizeNewlines(text).split('\n')[0];
+  if (firstLine === MAINTENANCE_LOG_V1_SENTINEL || firstLine === MAINTENANCE_LOG_V2_SENTINEL) {
+    return text;
+  }
+  return buildMaintenanceLogV1Description(text);
+}
+
 export function buildMaintenanceLogV2Description(
   component: MaintenanceLogV2ComponentSelection,
   faultDescription: string
@@ -185,4 +201,28 @@ export function selectNarrativeTranslation(
   const text = item.text?.trim() ?? '';
   if (!text || text === narrative) return null;
   return text;
+}
+
+export type LocalizedMaintenanceDescription = MaintenanceDescriptionDisplay & {
+  /** True when `narrative` is the completed translation instead of the stored text. */
+  translated: boolean;
+};
+
+/**
+ * The single description to show: localized component label plus one narrative.
+ * A completed translation for the UI language replaces the stored narrative. Any other
+ * outcome (no response, pending, unavailable, missing, empty, identical) keeps the original.
+ */
+export function localizeMaintenanceDescription(
+  description: string | null | undefined,
+  maintenanceTypeCode: string | null | undefined,
+  response: MaintenanceTranslationsResponse | null | undefined,
+  language: string,
+  t: (key: string) => string
+): LocalizedMaintenanceDescription {
+  const display = formatMaintenanceDescriptionDisplay(description, maintenanceTypeCode, t);
+  const translation = selectNarrativeTranslation(response, display.narrative, language);
+  return translation === null
+    ? { ...display, translated: false }
+    : { ...display, narrative: translation, translated: true };
 }

@@ -124,6 +124,22 @@ builder.Services.AddScoped<
 builder.Services.AddScoped<IMaintenanceTypeService, MaintTrack.Infrastructure.Maintenance.MaintenanceTypeService>();
 builder.Services.Configure<TranslationWorkerOptions>(
     builder.Configuration.GetSection(TranslationWorkerOptions.SectionName));
+builder.Services.Configure<AzureTranslatorOptions>(
+    builder.Configuration.GetSection(AzureTranslatorOptions.SectionName));
+var azureTranslatorOptions = builder.Configuration
+    .GetSection(AzureTranslatorOptions.SectionName)
+    .Get<AzureTranslatorOptions>() ?? new AzureTranslatorOptions();
+if (azureTranslatorOptions.HasApiKey)
+{
+    if (!azureTranslatorOptions.IsConfigured)
+        throw new InvalidOperationException("Translation:Azure:Endpoint must be a valid HTTPS URI.");
+
+    builder.Services.AddHttpClient<ITranslationProvider, AzureTranslatorProvider>((sp, client) =>
+    {
+        var options = sp.GetRequiredService<IOptions<AzureTranslatorOptions>>().Value;
+        client.Timeout = options.Timeout;
+    });
+}
 builder.Services.AddScoped<ITranslationRepository, TranslationRepository>();
 builder.Services.AddHostedService<TranslationWorker>();
 builder.Services.AddScoped<IMachineComponentService, MachineComponentService>();

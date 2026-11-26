@@ -72,6 +72,16 @@ public interface ITranslationRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Marks a fenced job completed without storing a translated row (for example when the
+    /// detected source language matches the job's target language).
+    /// </summary>
+    Task<TranslationCompletionResult> CompleteWithoutTranslationAsync(
+        Guid jobId,
+        Guid claimToken,
+        string sourceHash,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Records an error on the same job row when <paramref name="claimToken"/> is still current.
     /// The job returns to pending until <paramref name="maxAttempts"/>.
     /// Returns false when a newer claim owns the job.

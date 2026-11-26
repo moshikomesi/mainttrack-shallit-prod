@@ -551,6 +551,36 @@ public sealed class TranslationRepositoryTests : IAsyncDisposable
             (await _db.TranslationJobs.IgnoreQueryFilters().SingleAsync(job => job.SourceText == "previous failure")).Status);
     }
 
+    [Fact]
+    public async Task CompleteWithoutTranslation_MarksFencedJobCompleted_WithoutStoringText_AndBlocksDuplicateEnqueue()
+    {
+        var enqueued = await EnqueueAsync("אטם דולף", TranslationLanguages.Hebrew);
+        var claimed = Assert.Single(await _repository.ClaimPendingAsync(1, TimeSpan.FromMinutes(5), CancellationToken.None));
+
+        var stale = await _repository.CompleteWithoutTranslationAsync(
+            claimed.Id,
+            Guid.NewGuid(),
+            claimed.SourceHash,
+            CancellationToken.None);
+        Assert.Equal(TranslationCompletionResult.Stale, stale);
+
+        var completed = await _repository.CompleteWithoutTranslationAsync(
+            claimed.Id,
+            claimed.ClaimToken!.Value,
+            claimed.SourceHash,
+            CancellationToken.None);
+        Assert.Equal(TranslationCompletionResult.Completed, completed);
+
+        var storedJob = await _db.TranslationJobs.AsNoTracking().SingleAsync();
+        Assert.Equal(TranslationJobStatus.Completed, storedJob.Status);
+        Assert.NotNull(storedJob.ProcessedAt);
+        Assert.Empty(await _db.TranslatedTexts.AsNoTracking().ToListAsync());
+
+        var duplicate = await EnqueueAsync("אטם דולף", TranslationLanguages.Hebrew);
+        Assert.False(duplicate.Created);
+        Assert.Equal(enqueued.Job.Id, duplicate.Job.Id);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _db.DisposeAsync();

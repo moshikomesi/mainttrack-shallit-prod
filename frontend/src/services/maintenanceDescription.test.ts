@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
+  buildMaintenanceDescriptionForSubmit,
   buildMaintenanceLogV1Description,
   buildMaintenanceLogV2Description,
   formatMaintenanceDescriptionDisplay,
@@ -306,5 +308,83 @@ describe('narrative translation selection', () => {
     };
     assert.equal(selectNarrativeTranslation(same, narrative, 'en'), null);
     assert.equal(selectNarrativeTranslation(same, narrative, 'he'), null);
+  });
+});
+
+describe('submitted "other" description is marked exactly once', () => {
+  const driveShaft = {
+    kind: 'mapped' as const,
+    code: 'driveShaft',
+    nameKey: 'maintenanceComponent.driveShaft',
+  };
+
+  it('submits a V2 description unchanged', () => {
+    const v2 = buildMaintenanceLogV2Description(driveShaft, narrative);
+    const submitted = buildMaintenanceDescriptionForSubmit(v2);
+
+    assert.equal(submitted, v2);
+    assert.equal(submitted.split('\n')[0], 'maintenanceLog.v2');
+    assert.equal(submitted.includes('maintenanceLog.v1'), false);
+  });
+
+  it('still wraps a plain-text other description as V1', () => {
+    const submitted = buildMaintenanceDescriptionForSubmit('Hydraulic pump\nSeal leaking.');
+
+    assert.equal(submitted, 'maintenanceLog.v1\nHydraulic pump\nSeal leaking.');
+    assert.equal(submitted, buildMaintenanceLogV1Description('Hydraulic pump\nSeal leaking.'));
+    assert.equal(buildMaintenanceDescriptionForSubmit('  Belt slipping.  '), 'maintenanceLog.v1\nBelt slipping.');
+    assert.equal(buildMaintenanceDescriptionForSubmit('   '), '');
+  });
+
+  it('does not wrap an existing V1 description a second time', () => {
+    const v1 = buildMaintenanceLogV1Description(narrative);
+
+    assert.equal(buildMaintenanceDescriptionForSubmit(v1), v1);
+    assert.equal(buildMaintenanceDescriptionForSubmit(v1.replace(/\n/g, '\r\n')), v1.replace(/\n/g, '\r\n'));
+    assert.equal(buildMaintenanceDescriptionForSubmit(v1).split('maintenanceLog.v1').length - 1, 1);
+  });
+
+  it('keeps a component-only V2 description valid', () => {
+    const submitted = buildMaintenanceDescriptionForSubmit(buildMaintenanceLogV2Description(driveShaft, ''));
+    const view = viewMaintenanceDescription(submitted);
+    const display = formatMaintenanceDescriptionDisplay(submitted, 'other', translate('he'));
+
+    assert.equal(submitted, 'maintenanceLog.v2\nmaintenanceComponent.driveShaft');
+    assert.equal(view?.version, 'v2');
+    assert.equal(view?.component, 'maintenanceComponent.driveShaft');
+    assert.equal(view?.narrative, '');
+    assert.equal(display.componentLabel, translations['maintenanceComponent.driveShaft'].he);
+    assert.equal(display.narrative, '');
+    assert.equal(visibleText(display.componentLabel, display.narrative).includes('maintenance'), false);
+  });
+
+  it('keeps a V2 component-plus-narrative description valid', () => {
+    const submitted = buildMaintenanceDescriptionForSubmit(buildMaintenanceLogV2Description(driveShaft, narrative));
+    const view = viewMaintenanceDescription(submitted);
+    const display = formatMaintenanceDescriptionDisplay(submitted, 'other', translate('he'));
+
+    assert.equal(submitted, `maintenanceLog.v2\nmaintenanceComponent.driveShaft\n${narrative}`);
+    assert.equal(view?.version, 'v2');
+    assert.equal(view?.component, 'maintenanceComponent.driveShaft');
+    assert.equal(view?.narrative, narrative);
+    assert.equal(display.componentLabel, translations['maintenanceComponent.driveShaft'].he);
+    assert.equal(display.narrative, narrative);
+  });
+
+  it('keeps a custom V2 component name valid', () => {
+    const submitted = buildMaintenanceDescriptionForSubmit(
+      buildMaintenanceLogV2Description({ kind: 'other', text: 'Hydraulic pump' }, narrative)
+    );
+    assert.equal(submitted, `maintenanceLog.v2\nHydraulic pump\n${narrative}`);
+    assert.equal(viewMaintenanceDescription(submitted)?.component, 'Hydraulic pump');
+  });
+
+  it('the batch submit builds an "other" payload through this helper only', () => {
+    const source = readFileSync(new URL('./maintenanceBatchSubmit.ts', import.meta.url), 'utf8');
+
+    assert.match(source, /description:\s*buildMaintenanceDescriptionForSubmit\(row\.fault\)/);
+    assert.equal(/buildMaintenanceLogV1Description/.test(source), false);
+    assert.match(source, /if \(isOther\) \{/);
+    assert.match(source, /return \{ \.\.\.base \};/);
   });
 });

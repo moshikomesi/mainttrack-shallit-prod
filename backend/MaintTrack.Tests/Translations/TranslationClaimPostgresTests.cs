@@ -187,7 +187,8 @@ public sealed class TranslationClaimPostgresTests : IAsyncLifetime
                 PollingIntervalSeconds = 30,
                 BatchSize = 10,
                 MaxAttempts = 3,
-                ProcessingLeaseSeconds = 1
+                ProcessingLeaseSeconds = 1,
+                EnqueueEnabled = true
             },
             NullLogger<TranslationWorker>.Instance);
 

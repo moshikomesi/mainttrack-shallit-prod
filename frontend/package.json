@@ -61,6 +61,6 @@
             "build:staging": "vite build --mode staging",
             "build:test": "vite build --mode test",
             "preview": "vite preview",
-            "test:maintenance-description": "node --experimental-strip-types --test src/services/maintenanceDescription.test.ts"
+            "test:maintenance-description": "node --experimental-strip-types --test src/services/maintenanceDescription.test.ts src/services/maintenanceTranslationDisplay.test.ts"
       }
 }

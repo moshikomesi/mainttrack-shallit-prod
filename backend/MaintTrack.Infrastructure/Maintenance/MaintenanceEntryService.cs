@@ -32,6 +32,7 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
     private readonly IFileStorageService _fileStorageService;
     private readonly ILogger<MaintenanceEntryService> _logger;
     private readonly ITranslationRepository? _translations;
+    private readonly ITranslationProvider? _translationProvider;
     private readonly bool _enqueueEnabled;
 
     public MaintenanceEntryService(
@@ -41,7 +42,8 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
         IFileStorageService fileStorageService,
         ILogger<MaintenanceEntryService> logger,
         IOptions<TranslationWorkerOptions>? translationOptions = null,
-        ITranslationRepository? translations = null)
+        ITranslationRepository? translations = null,
+        ITranslationProvider? translationProvider = null)
     {
         _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
@@ -49,6 +51,7 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
         _fileStorageService = fileStorageService ?? throw new ArgumentNullException(nameof(fileStorageService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _translations = translations;
+        _translationProvider = translationProvider;
         _enqueueEnabled = translationOptions?.Value.EnqueueEnabled == true;
     }
 
@@ -320,7 +323,8 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
         if (!parts.HasTranslatableNarrative)
             return;
 
-        var requests = TranslationLanguages.Supported
+        var targetLanguages = await ResolveTargetLanguagesAsync(parts.Narrative);
+        var requests = targetLanguages
             .Select(language => new EnqueueTranslationRequest(
                 TranslatableFields.MaintenanceEntry,
                 entryId,
@@ -330,6 +334,26 @@ public sealed class MaintenanceEntryService : IMaintenanceEntryService
             .ToArray();
 
         await _translations.EnqueueAllAsync(requests, CancellationToken.None);
+    }
+
+    private async Task<IReadOnlyList<string>> ResolveTargetLanguagesAsync(string narrative)
+    {
+        if (_translationProvider is null)
+            return TranslationLanguages.Supported;
+
+        string? detectedLanguage = null;
+        try
+        {
+            detectedLanguage = await _translationProvider.DetectLanguageAsync(narrative, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Failed to detect source language before enqueueing translations; falling back to all supported target languages.");
+        }
+
+        return TranslationLanguages.TargetsExcluding(detectedLanguage);
     }
 
     /// <summary>
